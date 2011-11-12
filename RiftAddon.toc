@@ -1,0 +1,23 @@
+Identifier = "LibBaggotry"
+
+Version = "VERSION"
+
+Email = "seebs@seebs.net"
+
+Name = {
+  English = "LibBaggotry",
+  French = "LibBaggotry",
+  German = "LibBaggotry",
+}
+NameShort = "LibBaggotry"
+
+Description = {
+  English = "Bag utilities"
+}
+
+RunOnStartup = {
+  "LibBaggotry.lua"
+}
+
+Environment = { "1.6" }
+
