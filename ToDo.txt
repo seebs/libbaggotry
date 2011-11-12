@@ -3,14 +3,3 @@ ToDo:
 This file contains misc notes on things I plan to get to.  It's included with
 the addon because I'm too lazy not to include it.
 
-	make all filter functions take slot, item for consistency
-
-	filter:iterate(func)
-		calls func(slot, details) on each item, returning
-		list of items for which func returned true
-	filter:first(func)
-		calls func(slot, details) on each item, returning
-		{ slot, item } table containing the first item which
-		got nil
-	filter:include/exclude(func)
-		calls func on item and uses return value
