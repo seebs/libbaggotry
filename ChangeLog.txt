@@ -1,3 +1,7 @@
+2011/11/13:
+	* Merged merge/split into stack()
+	* Added 'descr' to filters for dumping
+
 2011/11/12:
 	* Got split() working
 	* Using Bagground Processing (SM)

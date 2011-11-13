@@ -60,8 +60,11 @@ function Filter:new()
   return o
 end
 
-function Filter:dump(slotspec)
-  lbag.printf("Filter: slotspec %s", slotspec or self.slotspec)
+function Filter:dump()
+  lbag.printf("Default slotspec %s", tostring(self.slotspec))
+  if self.descr then
+    lbag.printf("  Description: %s", tostring(self.descr))
+  end
   if self.includes then
     lbag.printf("  Includes:")
     for _, v in ipairs(self.includes) do
@@ -102,6 +105,10 @@ end
 
 function Filter:slot(slotspec)
   self.slotspec = slotspec
+end
+
+function Filter:descr(descr)
+  self.descr = descr
 end
 
 function Filter:match(item, slot)
@@ -226,21 +233,25 @@ function lbag.dump_item(item, slotspec)
   lbag.printf("%s: %s [%d]", slotspec, item.name, item.stack or 1)
 end
 
--- doesn't yet try to merge to stack size.
-function lbag.split_one_item(item_list, stack_size)
+function lbag.stack_one_item(item_list, stack_size)
   local count = 0
   did_something = false
-  if stack_size < 1 then
-    lbag.printf("Seriously, splitting to a stack size of <1?  No.")
-    return false
-  end
   local match_us_up = {}
   local matches_left = 0
   local ordered = {}
   local max_stack
+  stack_size = stack_size or 0
   for k, v in pairs(item_list) do
     local stack = v.stack or 1
-    max_stack = max_stack or v.stackMax
+    max_stack = max_stack or v.stackMax or 1
+    if stack_size < 1 then
+      stack_size = max_stack + stack_size
+      if stack_size < 1 then
+        lbag.printf("Seriously, splitting to a stack size of <1?  No.")
+        return false
+      end
+      lbag.printf("Using inferred stack size of %d for %s.", stack_size, v.name)
+    end
     while stack > stack_size do
       lbag.queue(Command.Item.Split, k, stack_size)
       stack = stack - stack_size
@@ -253,6 +264,7 @@ function lbag.split_one_item(item_list, stack_size)
       table.insert(ordered, k)
     end
     while table.getn(ordered) >= 2 do
+      local removed = false
       count = count + 1
       if count > 100 then
 	lbag.printf("Over a hundred steps, giving up.")
@@ -262,7 +274,16 @@ function lbag.split_one_item(item_list, stack_size)
 	order at all so that we can do "the first one". ]]
       local first = ordered[1]
       local second = ordered[2]
+      if not match_us_up[first] then
+        lbag.printf("error, match_us_up1[%s] is nil", first)
+      end
+      if not match_us_up[second] then
+        lbag.printf("error, match_us_up2[%s] is nil", second)
+      end
       lbag.queue(Command.Item.Move, first, second)
+      did_something = true
+      local s1 = match_us_up[first].stack
+      local s2 = match_us_up[second].stack
       if match_us_up[first].stack + match_us_up[second].stack > max_stack then
 	moved = max_stack - match_us_up[second].stack
 	match_us_up[first].stack = match_us_up[first].stack - moved
@@ -271,78 +292,22 @@ function lbag.split_one_item(item_list, stack_size)
 	match_us_up[second].stack = match_us_up[second].stack + match_us_up[first].stack
 	match_us_up[first] = nil
 	table.remove(ordered, 1)
+	removed = true
       end
       while match_us_up[second].stack > stack_size do
 	lbag.queue(Command.Item.Split, second, stack_size)
-	did_something = true
 	match_us_up[second].stack = match_us_up[second].stack - stack_size
 	matches_left = matches_left - stack_size
       end
-      -- and this might be an empty stack now
-      if match_us_up[second].stack == 0 then
+      -- and this might be an empty stack now, or a full stack
+      if match_us_up[second].stack == 0 or match_us_up[second].stack == stack_size then
 	match_us_up[second] = nil
-	table.remove(ordered, 2)
+	table.remove(ordered, removed and 1 or 2)
       end
     end
   end
   -- we may have things which were left over
   return did_something
-end
-
-function lbag.merge_one_item(item_list, stack_size)
-  local count = 0
-  local total_capacity = 0
-  local total_present = 0
-  local ordered = {}
-  for k, v in pairs(item_list) do
-    count = count + 1
-    total_capacity = total_capacity + (v.stackMax or 1)
-    total_present = total_present + (v.stack or 1)
-    stack_size = stack_size or v.stackMax
-    table.insert(ordered, k)
-  end
-  stack_size = stack_size or 0
-  if count < 2 then
-    return false
-  end
-  lbag.printf("%d slot(s), %d items, %d total capacity, stack size %d",
-  	count, total_present, total_capacity, stack_size)
-  --[[
-    If we got here, we now have a table containing at least two slots,
-    all of which have extra room.
-  ]]
-  local front = 1
-  local back = count
-  local steps = 0
-  while back > front and steps < 25 do
-    local backslot = ordered[back]
-    local frontslot = ordered[front]
-    local backitem = item_list[backslot]
-    local frontitem = item_list[frontslot]
-    local to_move = backitem.stack or 1
-    while to_move > 0 and back > front and steps < 25 do
-      moving = stack_size - (frontitem.stack or 1)
-      if moving > to_move then
-        moving = to_move
-      end
-      lbag.queue(Command.Item.Move, backslot, frontslot)
-      steps = steps + 1
-      to_move = to_move - moving
-      frontitem.stack = (frontitem.stack or 1) + moving
-      backitem.stack = (backitem.stack or 1) - moving
-      if frontitem.stack >= frontitem.stackMax then
-        front = front + 1
-	frontslot = ordered[front]
-	frontitem = item_list[frontslot]
-      end
-      if backitem.stack < 1 then
-        back = back - 1
-	backslot = ordered[back]
-	backitem = item_list[backslot]
-      end
-    end
-  end
-  return true
 end
 
 function lbag.stack_full_p(item, slotspec, stack_size)
@@ -353,36 +318,16 @@ function lbag.stack_full_p(item, slotspec, stack_size)
   end
 end
 
-function lbag.split(baggish, stack_size)
+function lbag.stack(baggish, stack_size)
   local item_list = lbag.expand_baggish(baggish)
   local item_lists = {}
-  -- splitting to stackMax would be unrewarding
-  stack_size = stack_size or 10
   for k, v in pairs(item_list) do
     item_lists[v.type] = item_lists[v.type] or {}
     item_lists[v.type][k] = v
   end
   local improved = false
   for k, v in pairs(item_lists) do
-    if lbag.split_one_item(v, stack_size) then
-      improved = true
-    end
-  end
-  if not improved then
-    lbag.printf("No room for improving stacking.")
-  end
-end
-
-function lbag.merge(baggish, stack_size)
-  local item_list = lbag.reject(baggish, lbag.stack_full_p, stack_size)
-  local item_lists = {}
-  for k, v in pairs(item_list) do
-    item_lists[v.type] = item_lists[v.type] or {}
-    item_lists[v.type][k] = v
-  end
-  local improved = false
-  for k, v in pairs(item_lists) do
-    if lbag.merge_one_item(v, stack_size) then
+    if lbag.stack_one_item(v, stack_size) then
       improved = true
     end
   end
