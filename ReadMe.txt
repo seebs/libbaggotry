@@ -66,7 +66,11 @@ avoid the command throttle for you!  :)
 The utilities are still being worked on, but:
 	Library.LibBaggotry.find(baggish)
 		Finds everything, yields a { slot = details } table.
-	Library.LibBaggotry.iterate(baggish, func, aux)
+	Library.LibBaggotry.iterate(baggish, func, value, aux)
+		Loop over baggish, doing
+			value = func(details, slot, value, aux)
+		and return value at the end.
+	Library.LibBaggotry.select(baggish, func, aux)
 		Calls func(details, slot, aux) for everything in baggish,
 		returns a table of the ones for which func returned a truthy
 		value (not false or nil).  This is logically equivalent
@@ -87,4 +91,9 @@ The utilities are still being worked on, but:
 	Library.LibBaggotry.split(baggish, size)
 		Like merge, but tries to get everything into stacks of
 		exactly size, and coalesce leftovers into a single stack.
-
+	Library.LibBaggotry.slotspec_p(slotspec)
+		Returns true if 'slotspec' is a valid slotspec
+	Library.LibBaggotry.rarity_p(rarity)
+		Returns a non-nil value if 'rarity' is a valid rarity (one
+		of 'trash', 'common', 'uncommon', 'rare', 'epic', or 'relic')
+		Non-nil values are 1 for trash and increase with quality.

@@ -1,6 +1,9 @@
 2011/11/13:
 	* Merged merge/split into stack()
 	* Added 'descr' to filters for dumping
+	* Added rarity_p()
+	* Renamed old iterate() to select(), and added a new iterate()
+	  which is more like an inject.
 
 2011/11/12:
 	* Got split() working

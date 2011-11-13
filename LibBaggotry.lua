@@ -34,6 +34,8 @@ Library = Library or {}
 Library.LibBaggotry = lbag
 lbag.version = "VERSION"
 
+lbag.bestpony = { 'trash', 'common', 'uncommon', 'rare', 'epic', 'relic' }
+
 lbag.command_queue = {}
 
 function lbag.printf(fmt, ...)
@@ -43,7 +45,7 @@ end
 -- The filter object/class/whatever
 local Filter = {}
 
-function Filter:is_a(obj)
+function Filter:filter_p(obj)
   if type(obj) == 'table' and getmetatable(obj) == self then
     return true
   else
@@ -89,11 +91,7 @@ function Filter:dump()
 end
 
 function Filter:find(baggish)
-  if baggish then
-    all_items = lbag.expand_baggish(baggish)
-  else
-    all_items = Inspect.Item.Detail(self.slotspec)
-  end
+  all_items = lbag.expand_baggish(baggish or self.slotspec)
   return_items = {}
   for slot, item in pairs(all_items) do
     if self:match(item, slot) then
@@ -153,7 +151,7 @@ function Filter:require(matchish, value)
   end
 end
 
-function Filter:exclude(matchish)
+function Filter:exclude(matchish, value)
   local newfunc = Filter:make_matcher(matchish, value)
   if newfunc then
     self.excludes = self.excludes or {}
@@ -177,6 +175,22 @@ function Filter:matcher(item, slot, matchish, value)
   -- a stack of 1 is represented as no stack member
   if matchish == 'stack' then
     ivalue = ivalue or 1
+  elseif matchish == 'rarity' then
+    ivalue = lbag.rarity_p(ivalue)
+    local calcvalue = lbag.rarity_p(value)
+    if calcvalue and ivalue then
+      return ivalue >= calcvalue
+    else
+      if not ivalue then
+        lbag.printf("Couldn't figure out item rarity '%s'.",
+		tostring(item[matchish]))
+      end
+      if not calcvalue then
+        lbag.printf("Couldn't figure out filter rarity '%s'.",
+		tostring(value))
+      end
+      return false
+    end
   elseif matchish == 'category' or matchish == 'name' then
     contain = true
   end
@@ -338,6 +352,15 @@ end
 
 lbag.already_filtered = {}
 
+function lbag.rarity_p(rarity)
+  for i, v in ipairs(lbag.bestpony) do
+    if rarity == v then
+      return i
+    end
+  end
+  return false
+end
+
 function lbag.slotspec_p(slotspec)
   if type(slotspec) ~= 'string' then
     return false
@@ -350,27 +373,26 @@ function lbag.slotspec_p(slotspec)
 end
 
 function lbag.expand_baggish(baggish)
+  local retval = {}
   if baggish == false then
     return {}
   end
   if baggish == true then
     baggish = Utility.Item.Slot.All()
   end
-  if Filter:is_a(baggish) then
+  if Filter:filter_p(baggish) then
     if lbag.already_filtered[baggish] then
       lbag.printf("Encountered filter loop, returning empty set.")
       return {}
     else
       lbag.already_filtered[baggish] = true
-      local retval = baggish:find()
+      retval = baggish:find()
       lbag.already_filtered[baggish] = false
-      return retval
     end
   elseif type(baggish) == 'table' then
     -- could be a few things
-    local retval = {}
     for k, v in pairs(table) do
-      if Filter:is_a(k) then
+      if Filter:filter_p(k) then
 	lbag.already_filtered[k] = true
         local item_list = k:find(lbag.slotspec_p(v) and v or nil)
 	lbag.already_filtered[k] = false
@@ -382,20 +404,23 @@ function lbag.expand_baggish(baggish)
 	retval[k] = v
       end
     end
-    return retval
   elseif lbag.slotspec_p(baggish) then
-    return Inspect.Item.Detail(baggish)
+    retval = Inspect.Item.Detail(baggish)
   elseif type(baggish) == 'function' then
     local filter = lbag:filter()
     filter:include(baggish)
     lbag.already_filtered[filter] = true
     local retval = filter:find()
     lbag.already_filtered[filter] = false
-    return retval
   else
     lbag.printf("Couldn't figure out what %s was.", tostring(baggish))
     return {}
   end
+  for k, v in pairs(retval) do
+    v.stack = v.stack or 1
+    v.rarity = v.rarity or 'common'
+  end
+  return retval
 end
 
 function lbag.dump(baggish)
@@ -405,7 +430,17 @@ function lbag.dump(baggish)
   end
 end
 
-function lbag.iterate(baggish, func, aux)
+function lbag.iterate(baggish, func, value, aux)
+  local item_list = lbag.expand_baggish(baggish)
+  local count = 0
+  for slot, details in pairs(item_list) do
+    value = func(details, slot, value, aux)
+    count = count + 1
+  end
+  return value, count
+end
+
+function lbag.select(baggish, func, aux)
   local item_list = lbag.expand_baggish(baggish)
   local return_list = {}
   for slot, details in pairs(item_list) do
