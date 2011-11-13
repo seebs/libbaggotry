@@ -42,20 +42,30 @@ one of three ways:
 In general, you can think of the "includes" as an or-list, and the
 requires as an and-list.
 
+Conditions are built around yet another -ish, the "matchish".  A matchish
+is either a function or the name of a member of the details table (for now).
+Syntax (same for excludes and requires) is:
+	:includes(matchish, value)
+	:includes(relop, matchish, value)
 
-Filter functions:
+If matchish is a function, relop must be absent or '==', and the function
+will be invoked as func(details, slotspec, value).  If matchish is
+the name of a member of the details table, 'relop' determines the
+relationship to test between the item's data and the provided value.
+If you don't specify a relop, the default is '==', except for category
+and name, where it is 'match'.  Relops are:
+	< <= == >= > ~= match
+where match only really makes sense on strings.  (As a convenience to me,
+the library currently recognizes = as a synonym for ==, and != as a synonym
+for ~=, but these may not survive.)
 
-A filter function can be registered with an optional value;
-	f:includes(func, aux)
-and will be invoked as
-	f(details, slotspec, aux)
-If aux is not provided, it will be nil.
+For diagnostic purposes (the f:dump() function), a filter function
+should return a one-line description of itself when invoked with
+details == nil.
 
-Filters return true or false.
-
-For diagnostic purposes (the f:dump() function), a filter should return
-a one-line description of itself when invoked with details == nil.
-
+Relational operators try to handle nil values sanely, which means that
+a nil value is less than any non-nil value, and two nil values are equal
+to each other.
 
 Next big feature:  Bagground Processing (TM).  When a LibBaggotry function
 needs to perform many operations, it performs one per update rather than

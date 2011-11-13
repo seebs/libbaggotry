@@ -34,6 +34,13 @@ Library = Library or {}
 Library.LibBaggotry = lbag
 lbag.version = "VERSION"
 
+lbag.color_rarity = { grey = 'trash',
+	white = 'common',
+	green = 'uncommon',
+	blue = 'rare',
+	purple = 'epic',
+	orange = 'relic',
+}
 lbag.bestpony = { 'trash', 'common', 'uncommon', 'rare', 'epic', 'relic' }
 
 lbag.command_queue = {}
@@ -135,27 +142,75 @@ function Filter:match(item, slot)
   end
 end
 
-function Filter:include(matchish, value)
-  local newfunc = Filter:make_matcher(matchish, value)
+-- helper functions
+function Filter:include(matchish, relop, value)
+  local newfunc = Filter:make_matcher(matchish, relop, value)
   if newfunc then
     self.includes = self.includes or {}
     table.insert(self.includes, newfunc)
   end
 end
 
-function Filter:require(matchish, value)
-  local newfunc = Filter:make_matcher(matchish, value)
+function Filter:require(matchish, relop, value)
+  local newfunc = Filter:make_matcher(matchish, relop, value)
   if newfunc then
     self.requires = self.requires or {}
     table.insert(self.requires, newfunc)
   end
 end
 
-function Filter:exclude(matchish, value)
-  local newfunc = Filter:make_matcher(matchish, value)
+function Filter:exclude(matchish, relop, value)
+  local newfunc = Filter:make_matcher(matchish, relop, value)
   if newfunc then
     self.excludes = self.excludes or {}
     table.insert(self.excludes, newfunc)
+  end
+end
+
+function Filter:relop(relop, value1, value2)
+  if relop == '==' or relop == '=' then
+    return value1 == value2
+  elseif relop == '~=' or relop == '!=' then
+    return value1 ~= value2
+  elseif relop == 'match' then
+    return string.match(value1, value2)
+  else
+    -- relationals have extra requirements
+
+    local equal_success = false
+    local greater_success = false
+    local lessthan_success = false
+    if relop == '<=' or relop == '>=' then
+      equal_success = true
+    end
+    if relop == '<=' or relop == '<' then
+      lessthan_success = true
+    end
+    if relop == '>=' or relop == '>' then
+      greater_success = true
+    end
+
+    if not value1 and not value2 then
+      return equal_success
+    end
+    if not value1 then
+      return lessthan_success
+    end
+    if not value2 then
+      return greaterthan_success
+    end
+    if relop == '<' then
+      return value1 < value2
+    elseif relop == '<=' then
+      return value1 <= value2
+    elseif relop == '>=' then
+      return value1 >= value2
+    elseif relop == '>' then
+      return value1 > value2
+    else
+      lbag.printf("Invalid relational operator '%s'", tostring(relop))
+      return false
+    end
   end
 end
 
@@ -163,10 +218,9 @@ end
 
   Full of special cases and knowledge...
   ]]
-function Filter:matcher(item, slot, matchish, value)
-  local contain = false
+function Filter:matcher(relop, item, slot, matchish, value)
   if not item then
-    return string.format("%s = %s", matchish, value)
+    return string.format("%s %s %s", matchish, relop, value)
   end
   if type(item) ~= 'table' then
     return false
@@ -179,7 +233,7 @@ function Filter:matcher(item, slot, matchish, value)
     ivalue = lbag.rarity_p(ivalue)
     local calcvalue = lbag.rarity_p(value)
     if calcvalue and ivalue then
-      return ivalue >= calcvalue
+      return self:relop(relop, ivalue, calcvalue)
     else
       if not ivalue then
         lbag.printf("Couldn't figure out item rarity '%s'.",
@@ -191,34 +245,33 @@ function Filter:matcher(item, slot, matchish, value)
       end
       return false
     end
-  elseif matchish == 'category' or matchish == 'name' then
-    contain = true
   end
-  if ivalue then
-    if type(ivalue) == 'string' then
-      ivalue = string.lower(ivalue)
-    end
-    if contain then
-      if string.match(ivalue, value) then
-        return true
-      else
-        return false
-      end
-    elseif value ~= ivalue then
-      return false
-    end
-  elseif value then
-    return false
+  if type(ivalue) == 'string' then
+    ivalue = string.lower(ivalue)
+  elseif type(ivalue) == 'number' then
+    value = tonumber(value)
   end
-  return true
+  return self:relop(relop, ivalue, value)
 end
 
-function Filter:make_matcher(matchish, value)
+function Filter:make_matcher(matchish, relop, value)
+  if not value then
+    value = relop
+    if matchish == 'category' or matchish == 'name' then
+      relop = 'match'
+    else
+      relop = '=='
+    end
+  end
   local match_type = type(matchish)
   if match_type == 'table' then
     lbag.printf("Can't make matchers from tables yet.")
     return nil
   elseif match_type == 'function' then
+    -- relop is ignored
+    if relop ~= '==' then
+      lbag.printf("Warning:  relop ('%s') ignored when matching a function.", relop)
+    end
     return function(item, slot)
       matchish(item, slot, value)
     end
@@ -230,7 +283,7 @@ function Filter:make_matcher(matchish, value)
     end
     -- closure to stash matchish and value
     return function(item, slot)
-      return Filter:matcher(item, slot, matchish, value)
+      return Filter:matcher(relop, item, slot, matchish, value)
     end
   else
     lbag.printf("Unknown match specifier, type '%s'", match_type)
@@ -353,6 +406,10 @@ end
 lbag.already_filtered = {}
 
 function lbag.rarity_p(rarity)
+  -- handle nil, because .rarity isn't set when it's 'common'
+  rarity = rarity or 'common'
+  -- translate colors because people are lazy
+  rarity = lbag.color_rarity[rarity] or rarity
   for i, v in ipairs(lbag.bestpony) do
     if rarity == v then
       return i
@@ -425,8 +482,13 @@ end
 
 function lbag.dump(baggish)
   local item_list = lbag.expand_baggish(baggish)
+  local dumped_any = false
   for k, v in pairs(item_list) do
     lbag.dump_item(v, k)
+    dumped_any = true
+  end
+  if not dumped_any then
+    lbag.printf("No matches.")
   end
 end
 

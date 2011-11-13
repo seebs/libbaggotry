@@ -4,6 +4,11 @@
 	* Added rarity_p()
 	* Renamed old iterate() to select(), and added a new iterate()
 	  which is more like an inject.
+	* Added translation of colors, and also 'nil', to rarity_p()
+	* Added relops to matchers.
+	* Emit "No matches" when dumping an empty baggish.
+	* Fix handling of relops when something is unset in at least
+	  a fair number of cases
 
 2011/11/12:
 	* Got split() working
