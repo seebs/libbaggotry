@@ -34,6 +34,8 @@ Library = Library or {}
 Library.LibBaggotry = lbag
 lbag.version = "VERSION"
 
+lbag.command_queue = {}
+
 function lbag.printf(fmt, ...)
   print(string.format(fmt or 'nil', ...))
 end
@@ -81,21 +83,6 @@ function Filter:dump(slotspec)
       lbag.printf("    %s", descr)
     end
   end
-end
-
-function Filter:first(func, aux, slotspec)
-  all_keys = Inspect.Item.List(slotspec or self.slotspec)
-  all_items = Inspect.Item.Detail(slotspec or self.slotspec)
-  -- Because I think item ID should be in there somewhere
-  for slot, item in pairs(all_items) do
-    item.id = all_keys[slot].id
-    if self:match(item, slot) then
-      if func(item, slot, aux) then
-        return { slot = item }
-      end
-    end
-  end
-  return nil
 end
 
 function Filter:find(baggish)
@@ -239,19 +226,82 @@ function lbag.dump_item(item, slotspec)
   lbag.printf("%s: %s [%d]", slotspec, item.name, item.stack or 1)
 end
 
-function lbag.merge_one_item(item_list)
+-- doesn't yet try to merge to stack size.
+function lbag.split_one_item(item_list, stack_size)
+  local count = 0
+  did_something = false
+  if stack_size < 1 then
+    lbag.printf("Seriously, splitting to a stack size of <1?  No.")
+    return false
+  end
+  local match_us_up = {}
+  local matches_left = 0
+  local ordered = {}
+  local max_stack
+  for k, v in pairs(item_list) do
+    local stack = v.stack or 1
+    max_stack = max_stack or v.stackMax
+    while stack > stack_size do
+      lbag.queue(Command.Item.Split, k, stack_size)
+      stack = stack - stack_size
+      did_something = true
+    end
+    if stack > 0 and stack ~= stack_size then
+      v.stack = stack
+      match_us_up[k] = v
+      matches_left = matches_left + stack
+      table.insert(ordered, k)
+    end
+    while table.getn(ordered) >= 2 do
+      count = count + 1
+      if count > 100 then
+	lbag.printf("Over a hundred steps, giving up.")
+	return did_something
+      end
+      --[[ note:  "ordered" isn't a specific order; rather, it's ANY
+	order at all so that we can do "the first one". ]]
+      local first = ordered[1]
+      local second = ordered[2]
+      lbag.queue(Command.Item.Move, first, second)
+      if match_us_up[first].stack + match_us_up[second].stack > max_stack then
+	moved = max_stack - match_us_up[second].stack
+	match_us_up[first].stack = match_us_up[first].stack - moved
+	match_us_up[second].stack = match_us_up[second].stack + moved
+      else
+	match_us_up[second].stack = match_us_up[second].stack + match_us_up[first].stack
+	match_us_up[first] = nil
+	table.remove(ordered, 1)
+      end
+      while match_us_up[second].stack > stack_size do
+	lbag.queue(Command.Item.Split, second, stack_size)
+	did_something = true
+	match_us_up[second].stack = match_us_up[second].stack - stack_size
+	matches_left = matches_left - stack_size
+      end
+      -- and this might be an empty stack now
+      if match_us_up[second].stack == 0 then
+	match_us_up[second] = nil
+	table.remove(ordered, 2)
+      end
+    end
+  end
+  -- we may have things which were left over
+  return did_something
+end
+
+function lbag.merge_one_item(item_list, stack_size)
   local count = 0
   local total_capacity = 0
   local total_present = 0
-  local stack_size = 0
   local ordered = {}
   for k, v in pairs(item_list) do
     count = count + 1
     total_capacity = total_capacity + (v.stackMax or 1)
     total_present = total_present + (v.stack or 1)
-    stack_size = v.stackMax
+    stack_size = stack_size or v.stackMax
     table.insert(ordered, k)
   end
+  stack_size = stack_size or 0
   if count < 2 then
     return false
   end
@@ -275,7 +325,7 @@ function lbag.merge_one_item(item_list)
       if moving > to_move then
         moving = to_move
       end
-      Command.Item.Move(backslot, frontslot)
+      lbag.queue(Command.Item.Move, backslot, frontslot)
       steps = steps + 1
       to_move = to_move - moving
       frontitem.stack = (frontitem.stack or 1) + moving
@@ -295,8 +345,36 @@ function lbag.merge_one_item(item_list)
   return true
 end
 
-function lbag.merge(baggish)
-  local item_list = lbag.iterate(baggish, function(item) return item.stack ~= item.stackMax end)
+function lbag.stack_full_p(item, slotspec, stack_size)
+  if stack_size then
+    return (item.stack or 1) >= stack_size
+  else
+    return item.stack == item.stackMax
+  end
+end
+
+function lbag.split(baggish, stack_size)
+  local item_list = lbag.expand_baggish(baggish)
+  local item_lists = {}
+  -- splitting to stackMax would be unrewarding
+  stack_size = stack_size or 10
+  for k, v in pairs(item_list) do
+    item_lists[v.type] = item_lists[v.type] or {}
+    item_lists[v.type][k] = v
+  end
+  local improved = false
+  for k, v in pairs(item_lists) do
+    if lbag.split_one_item(v, stack_size) then
+      improved = true
+    end
+  end
+  if not improved then
+    lbag.printf("No room for improving stacking.")
+  end
+end
+
+function lbag.merge(baggish, stack_size)
+  local item_list = lbag.reject(baggish, lbag.stack_full_p, stack_size)
   local item_lists = {}
   for k, v in pairs(item_list) do
     item_lists[v.type] = item_lists[v.type] or {}
@@ -304,7 +382,7 @@ function lbag.merge(baggish)
   end
   local improved = false
   for k, v in pairs(item_lists) do
-    if lbag.merge_one_item(v) then
+    if lbag.merge_one_item(v, stack_size) then
       improved = true
     end
   end
@@ -315,7 +393,24 @@ end
 
 lbag.already_filtered = {}
 
+function lbag.slotspec_p(slotspec)
+  if type(slotspec) ~= 'string' then
+    return false
+  end
+  val, err = pcall(function() Utility.Item.Slot.Parse(slotspec) end)
+  if err then
+    return false
+  end
+  return true
+end
+
 function lbag.expand_baggish(baggish)
+  if baggish == false then
+    return {}
+  end
+  if baggish == true then
+    baggish = Utility.Item.Slot.All()
+  end
   if Filter:is_a(baggish) then
     if lbag.already_filtered[baggish] then
       lbag.printf("Encountered filter loop, returning empty set.")
@@ -326,8 +421,35 @@ function lbag.expand_baggish(baggish)
       lbag.already_filtered[baggish] = false
       return retval
     end
-  else
+  elseif type(baggish) == 'table' then
+    -- could be a few things
+    local retval = {}
+    for k, v in pairs(table) do
+      if Filter:is_a(k) then
+	lbag.already_filtered[k] = true
+        local item_list = k:find(lbag.slotspec_p(v) and v or nil)
+	lbag.already_filtered[k] = false
+	for k2, v2 in pairs(item_list) do
+	  retval[k2] = v2
+	end
+      elseif lbag.slotspec_p('k') and type(v) == 'table' then
+        -- a slotspec:table pair is probably already good
+	retval[k] = v
+      end
+    end
+    return retval
+  elseif lbag.slotspec_p(baggish) then
     return Inspect.Item.Detail(baggish)
+  elseif type(baggish) == 'function' then
+    local filter = lbag:filter()
+    filter:include(baggish)
+    lbag.already_filtered[filter] = true
+    local retval = filter:find()
+    lbag.already_filtered[filter] = false
+    return retval
+  else
+    lbag.printf("Couldn't figure out what %s was.", tostring(baggish))
+    return {}
   end
 end
 
@@ -349,6 +471,47 @@ function lbag.iterate(baggish, func, aux)
   return return_list
 end
 
+function lbag.reject(baggish, func, aux)
+  local item_list = lbag.expand_baggish(baggish)
+  local return_list = {}
+  for slot, details in pairs(item_list) do
+    if not func(details, slot, aux) then
+      return_list[slot] = details
+    end
+  end
+  return return_list
+end
+
+function lbag:first(baggish, func, aux)
+  all_items = expand_baggish(aux)
+  -- Because I think item ID should be in there somewhere
+  for slot, item in pairs(all_items) do
+    if func(item, slot, aux) then
+      return { slot = item }
+    end
+  end
+  return nil
+end
+
+function lbag.queue(func, ...)
+  local func_and_args = { func, ... }
+  table.insert(lbag.command_queue, func_and_args)
+end
+
+function lbag.runqueue()
+  if lbag.command_queue[1] then
+    local func_args = lbag.command_queue[1]
+    local func = func_args[1]
+    if not func then
+      lbag.printf("Huh?  Got nil func.  Ignoring it.")
+    else
+      table.remove(func_args, 1)
+      func(unpack(func_args))
+    end
+    table.remove(lbag.command_queue, 1)
+  end
+end
+
 function lbag.find(baggish)
   local item_list = lbag.expand_baggish(baggish)
   return item_list
@@ -363,7 +526,4 @@ function lbag.scratch_slot()
   return false
 end
 
-function lbag.split(item_name, split_into)
-  lbag.printf("Unimplemented.")
-end
-
+table.insert(Event.System.Update.Begin, { lbag.runqueue, "LibBaggotry", "command queue hook" })

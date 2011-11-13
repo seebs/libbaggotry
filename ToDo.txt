@@ -3,3 +3,6 @@ ToDo:
 This file contains misc notes on things I plan to get to.  It's included with
 the addon because I'm too lazy not to include it.
 
+
+	* Make split smart enough to notice if it might run out of
+	  slots.
