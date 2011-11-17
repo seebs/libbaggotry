@@ -34,14 +34,34 @@ Library = Library or {}
 Library.LibBaggotry = lbag
 lbag.version = "VERSION"
 
+function lbag.variables_loaded(name)
+  if name == 'LibBaggotry' then
+    LibBaggotryGlobal = LibBaggotryGlobal or {}
+    LibBaggotryAccount = LibBaggotryAccount or {}
+    -- expose these for debugging convenience.  DO NOT USE THESE.
+    lbag.global_vars = LibBaggotryGlobal
+    lbag.account_vars = LibBaggotryAccount
+  end
+end
+
 lbag.color_rarity = { grey = 'trash',
 	white = 'common',
 	green = 'uncommon',
 	blue = 'rare',
 	purple = 'epic',
 	orange = 'relic',
+	yellow = 'quest',
 }
-lbag.bestpony = { 'trash', 'common', 'uncommon', 'rare', 'epic', 'relic' }
+lbag.rarity_color = { trash = { r = .34375, g = .34375, b = 34375 },
+	common = { r = .98, g = .98, b = .98 },
+	uncommon = { r = 0, g = .797, b = 0 },
+	rare = { r = .148, g = .496, b = .977 },
+	epic = { r = .676, g = .281, b = .98 },
+	relic = { r = 1, g = .5, b = 0 },
+	quest = { r = 1, g = 1, b = 0 },
+}
+
+lbag.bestpony = { 'trash', 'common', 'uncommon', 'rare', 'epic', 'relic', 'quest' }
 
 lbag.command_queue = {}
 
@@ -97,8 +117,8 @@ function Filter:dump()
   end
 end
 
-function Filter:find(baggish)
-  all_items = lbag.expand_baggish(baggish or self.slotspec)
+function Filter:find(baggish, disallow_alts)
+  all_items = lbag.expand_baggish(baggish or self.slotspec, disallow_alts)
   return_items = {}
   for slot, item in pairs(all_items) do
     if self:match(item, slot) then
@@ -109,7 +129,10 @@ function Filter:find(baggish)
 end
 
 function Filter:slot(slotspec)
-  self.slotspec = slotspec
+  if slotspec then
+    self.slotspec = slotspec
+  end
+  return self.slotspec
 end
 
 function Filter:descr(descr)
@@ -230,21 +253,10 @@ function Filter:matcher(relop, item, slot, matchish, value)
   if matchish == 'stack' then
     ivalue = ivalue or 1
   elseif matchish == 'rarity' then
+    -- don't try to guess at item rarities, because that would be silly.
     ivalue = lbag.rarity_p(ivalue)
-    local calcvalue = lbag.rarity_p(value)
-    if calcvalue and ivalue then
-      return self:relop(relop, ivalue, calcvalue)
-    else
-      if not ivalue then
-        lbag.printf("Couldn't figure out item rarity '%s'.",
-		tostring(item[matchish]))
-      end
-      if not calcvalue then
-        lbag.printf("Couldn't figure out filter rarity '%s'.",
-		tostring(value))
-      end
-      return false
-    end
+    local calcvalue = lbag.rarity_p(value, true)
+    return self:relop(relop, ivalue, calcvalue)
   end
   if type(ivalue) == 'string' then
     ivalue = string.lower(ivalue)
@@ -298,6 +310,20 @@ end
 
 function lbag.dump_item(item, slotspec)
   lbag.printf("%s: %s [%d]", slotspec, item.name, item.stack or 1)
+end
+
+function lbag.slot_updated()
+  local whoami = lbag.char_identifier()
+  local global_or_account
+  if lbag.share_inventory_p() then
+    global_or_account = LibBaggotryGlobal
+  else
+    global_or_account = LibBaggotryAccount
+  end
+  if not global_or_account[whoami] then
+    global_or_account[whoami] = {}
+  end
+  global_or_account[whoami]['inventory'] = Inspect.Item.Detail(Utility.Item.Slot.All())
 end
 
 function lbag.stack_one_item(item_list, stack_size)
@@ -386,7 +412,7 @@ function lbag.stack_full_p(item, slotspec, stack_size)
 end
 
 function lbag.stack(baggish, stack_size)
-  local item_list = lbag.expand_baggish(baggish)
+  local item_list = lbag.expand_baggish(baggish, true)
   local item_lists = {}
   for k, v in pairs(item_list) do
     item_lists[v.type] = item_lists[v.type] or {}
@@ -405,31 +431,42 @@ end
 
 lbag.already_filtered = {}
 
-function lbag.rarity_p(rarity)
+function lbag.rarity_p(rarity, permissive)
   -- handle nil, because .rarity isn't set when it's 'common'
   rarity = rarity or 'common'
-  -- translate colors because people are lazy
-  rarity = lbag.color_rarity[rarity] or rarity
+  if permissive then
+    -- translate colors because people are lazy
+    rarity = lbag.color_rarity[rarity] or rarity
+  end
   for i, v in ipairs(lbag.bestpony) do
     if rarity == v then
-      return i
+      return i, rarity, lbag.rarity_color[rarity]
     end
   end
   return false
 end
 
-function lbag.slotspec_p(slotspec)
-  if type(slotspec) ~= 'string' then
+function lbag.slotspec_p(spec)
+  if type(spec) ~= 'string' then
     return false
+  end
+  local charspec, slotspec = string.match(spec, '([%a/]+):(.*)')
+  if not slotspec then
+    slotspec = spec
+  else
+    -- an invalid charspec means this isn't a valid fancy slotspec
+    if not lbag.char_identifier_p(charspec) then
+      return false
+    end
   end
   val, err = pcall(function() Utility.Item.Slot.Parse(slotspec) end)
   if err then
     return false
   end
-  return true
+  return slotspec, charspec
 end
 
-function lbag.expand_baggish(baggish)
+function lbag.expand_baggish(baggish, disallow_alts)
   local retval = {}
   if baggish == false then
     return {}
@@ -443,7 +480,7 @@ function lbag.expand_baggish(baggish)
       return {}
     else
       lbag.already_filtered[baggish] = true
-      retval = baggish:find()
+      retval = baggish:find(nil, disallow_alts)
       lbag.already_filtered[baggish] = false
     end
   elseif type(baggish) == 'table' then
@@ -451,7 +488,7 @@ function lbag.expand_baggish(baggish)
     for k, v in pairs(table) do
       if Filter:filter_p(k) then
 	lbag.already_filtered[k] = true
-        local item_list = k:find(lbag.slotspec_p(v) and v or nil)
+        local item_list = k:find(lbag.slotspec_p(v) and v or nil, disallow_alts)
 	lbag.already_filtered[k] = false
 	for k2, v2 in pairs(item_list) do
 	  retval[k2] = v2
@@ -462,12 +499,22 @@ function lbag.expand_baggish(baggish)
       end
     end
   elseif lbag.slotspec_p(baggish) then
-    retval = Inspect.Item.Detail(baggish)
+    local slotspec, charspec = lbag.slotspec_p(baggish)
+    if charspec then
+      if disallow_alts then
+        lbag.printf("No can do:  Can't use alts with this function.")
+	retval = {}
+      else
+        retval = lbag.char_item_details(charspec, slotspec)
+      end
+    else
+      retval = Inspect.Item.Detail(baggish)
+    end
   elseif type(baggish) == 'function' then
     local filter = lbag:filter()
     filter:include(baggish)
     lbag.already_filtered[filter] = true
-    local retval = filter:find()
+    local retval = filter:find(nil, disallow_alts)
     lbag.already_filtered[filter] = false
   else
     lbag.printf("Couldn't figure out what %s was.", tostring(baggish))
@@ -568,4 +615,97 @@ function lbag.scratch_slot()
   return false
 end
 
+function lbag.char_identifier_p(char_identifier)
+  if type(char_identifier) ~= 'string' then
+    return false
+  end
+  shard, faction, char = string.match(char_identifier, '^(%a+)/(%a+)/(%a+)$')
+  if not char then
+    return false
+  end
+  return shard, faction, char
+end
+
+function lbag.char_identifier(character, faction, shard)
+  local me = Inspect.Unit.Detail("player")
+  if not shard then
+    shard = Inspect.Shard()
+    shard = shard.name or "Unknown"
+  end
+  if not character then
+    character = me.name or "Unknown"
+  end
+  if not faction then
+    faction = me.faction or "Unknown"
+  end
+  return string.format("%s/%s/%s", tostring(shard), tostring(faction), tostring(character))
+end
+
+-- you gotta caaaaaaare, you gotta shaaaaaaaare
+function lbag.share_inventory_p()
+  if LibBaggotryAccount[whoami] then
+    return LibBaggotryAccount[whoami]['share_inventory']
+  else
+    return false
+  end
+end
+
+function lbag.share_inventory(sharing)
+  local whoami = lbag.char_identifier()
+  local was_sharing
+  if LibBaggotryAccount[whoami] then
+    was_sharing = LibBaggotryAccount[whoami]['share_inventory']
+  else
+    LibBaggotryAccount[whoami] = {}
+    was_sharing = false
+  end
+  LibBaggotryAccount[whoami]['share_inventory'] = sharing
+  if sharing ~= was_sharing then
+    if was_sharing then
+      LibBaggotryAccount[whoami][inventory] = Inspect.Item.Detail()
+      LibBaggotryGlobal[whoami][inventory] = nil
+    else
+      LibBaggotryGlobal[whoami][inventory] = Inspect.Item.Detail()
+      LibBaggotryAccount[whoami][inventory] = nil
+    end
+  end
+end
+
+function lbag.char_inventory(character, faction, shard)
+  local whoami = lbag.char_identifier(character, faction, shard)
+  if LibBaggotryAccount[whoami] then
+    return LibBaggotryAccount[whoami]['inventory'] or {}
+  elseif LibBaggotryGlobal[whoami] then
+    return LibBaggotryGlobal[whoami]['inventory'] or {}
+  else
+    return {}
+  end
+end
+
+function lbag.char_item_details(charspec, slotspec)
+  local retval = {}
+  local shard, faction, char = lbag.char_identifier_p(charspec)
+  if not shard then
+    return retval
+  end
+  items = lbag.char_inventory(char, faction, shard)
+  if items then
+    pat = string.format("^%s", slotspec)
+    for k, v in pairs(items) do
+      if string.match(k, pat) then
+	-- dup table since some operations assume it's safe to mess with
+	-- bag contents
+	local newtable = {}
+	for k2, v2 in pairs(v) do
+	  newtable[k2] = v2
+	end
+        retval[k] = newtable
+      end
+    end
+  end
+  return retval
+end
+
+table.insert(Event.Item.Slot, { lbag.slot_updated, "LibBaggotry", "slot update hook" })
+table.insert(Event.Addon.SavedVariables.Load.End, { lbag.variables_loaded, "LibBaggotry", "variable loaded hook" })
 table.insert(Event.System.Update.Begin, { lbag.runqueue, "LibBaggotry", "command queue hook" })

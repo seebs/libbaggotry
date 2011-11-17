@@ -1,3 +1,12 @@
+2011/11/16:
+	* Added initial support for access to inventory on alts
+
+2011/11/14:
+	* Made rarity_p return canonicalized names and colors
+	* Removed excess testing for false values from rarity now that
+	  relop() handles that
+	* Added "permissive" flag to rarity to control canonicalization.
+
 2011/11/13:
 	* Merged merge/split into stack()
 	* Added 'descr' to filters for dumping

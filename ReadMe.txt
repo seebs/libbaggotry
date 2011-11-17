@@ -102,8 +102,34 @@ The utilities are still being worked on, but:
 		Like merge, but tries to get everything into stacks of
 		exactly size, and coalesce leftovers into a single stack.
 	Library.LibBaggotry.slotspec_p(slotspec)
-		Returns true if 'slotspec' is a valid slotspec
-	Library.LibBaggotry.rarity_p(rarity)
-		Returns a non-nil value if 'rarity' is a valid rarity (one
-		of 'trash', 'common', 'uncommon', 'rare', 'epic', or 'relic')
-		Non-nil values are 1 for trash and increase with quality.
+		Returns true if 'slotspec' is a valid slotspec.  As a
+		bonus feature, if slotspec is of the form
+			char_identifier:slotspec
+		yields slotspec, charspec (two values) so you can do
+		fancy things like look in other inventories.
+	Library.LibBaggotry.rarity_p(rarity, permissive)
+		Returns a non-nil/false value if 'rarity' is a valid rarity
+		In fact, returns three values in such cases;
+			quality, name, { r, g, b }
+		The quality is a value starting at 1 for trash and
+		increasing monotonically, the name is a canonicalized name,
+		and 'permissive' controls whether rarity_p tries to
+		translate non-standard names such as 'purple' or 'white'.
+		(The returned name is canonicalized.)  Ordering is:
+			trash
+			common
+			uncommon
+			rare
+			epic
+			relic
+			quest
+	Library.LibBaggotry.queue(func, args)
+		Appends func to the Bagground Processing (SM) queue.
+		Items registered this way are processed, one per frame,
+		in the order they were queued.  The argument list is
+		stored and passed in when the function is invoked.
+	Library.LibBaggotry.char_identifier(character, faction, shard)	
+		yields "Shard/faction/Character", using provided values or
+		the current shard, faction, or character.
+	Library.LibBaggotry.char_identifier_p(string)
+		Determines whether string looks to be a valid char_identifier.

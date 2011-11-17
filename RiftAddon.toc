@@ -11,6 +11,12 @@ Name = {
 }
 NameShort = "LibBaggotry"
 
+-- behold the subtle nuances!
+SavedVariables = {
+  LibBaggotryGlobal = "global",
+  LibBaggotryAccount = "account",
+}
+
 Description = {
   English = "Bag utilities"
 }
