@@ -333,18 +333,28 @@ function lbag.stack_one_item(item_list, stack_size)
   local matches_left = 0
   local ordered = {}
   local max_stack
+  local stacks = 0
+  local total_items = 0
   stack_size = stack_size or 0
   for k, v in pairs(item_list) do
-    local stack = v.stack or 1
     max_stack = max_stack or v.stackMax or 1
+    stacks = stacks + 1
+    total_items = total_items + (v.stack or 1)
     if stack_size < 1 then
       stack_size = max_stack + stack_size
       if stack_size < 1 then
         lbag.printf("Seriously, splitting to a stack size of <1?  No.")
         return false
       end
-      lbag.printf("Using inferred stack size of %d for %s.", stack_size, v.name)
     end
+  end
+  -- nothing to do; don't need to split, and only have one stack
+  if stacks < 2 and total_items < stack_size then
+    return false
+  end
+  for k, v in pairs(item_list) do
+    local stack = v.stack or 1
+    max_stack = max_stack or v.stackMax or 1
     while stack > stack_size do
       lbag.queue(Command.Item.Split, k, stack_size)
       stack = stack - stack_size

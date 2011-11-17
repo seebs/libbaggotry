@@ -1,5 +1,7 @@
 2011/11/16:
 	* Added initial support for access to inventory on alts
+	* Improved stacking logic, removed "inferred..." message because
+	  it was spammy.
 
 2011/11/14:
 	* Made rarity_p return canonicalized names and colors
