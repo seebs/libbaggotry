@@ -133,3 +133,6 @@ The utilities are still being worked on, but:
 		the current shard, faction, or character.
 	Library.LibBaggotry.char_identifier_p(string)
 		Determines whether string looks to be a valid char_identifier.
+		Returns nil or shard, faction, charname.
+	Library.LibBaggotry.rarity_color(rarity)
+		returns r, g, b

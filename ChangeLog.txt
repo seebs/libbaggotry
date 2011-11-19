@@ -1,3 +1,7 @@
+2011/11/18:
+	* Lots of cleanup to alt inventory code.
+	* Make rarity_color more usable.
+
 2011/11/16:
 	* Added initial support for access to inventory on alts
 	* Improved stacking logic, removed "inferred..." message because

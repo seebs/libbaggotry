@@ -52,7 +52,7 @@ lbag.color_rarity = { grey = 'trash',
 	orange = 'relic',
 	yellow = 'quest',
 }
-lbag.rarity_color = { trash = { r = .34375, g = .34375, b = 34375 },
+lbag.rarity_color_table = { trash = { r = .34375, g = .34375, b = 34375 },
 	common = { r = .98, g = .98, b = .98 },
 	uncommon = { r = 0, g = .797, b = 0 },
 	rare = { r = .148, g = .496, b = .977 },
@@ -450,17 +450,26 @@ function lbag.rarity_p(rarity, permissive)
   end
   for i, v in ipairs(lbag.bestpony) do
     if rarity == v then
-      return i, rarity, lbag.rarity_color[rarity]
+      return i, rarity, lbag.rarity_color_table[rarity]
     end
   end
   return false
+end
+
+function lbag.rarity_color(rarity)
+  _, _, rgb = lbag.rarity_p(rarity, true)
+  if rgb then
+    return rgb.r, rgb.g, rgb.b
+  else
+    return 0.8, 0.8, 0.8
+  end
 end
 
 function lbag.slotspec_p(spec)
   if type(spec) ~= 'string' then
     return false
   end
-  local charspec, slotspec = string.match(spec, '([%a/]+):(.*)')
+  local charspec, slotspec = string.match(spec, '([%a/*]+):(.*)')
   if not slotspec then
     slotspec = spec
   else
@@ -629,9 +638,20 @@ function lbag.char_identifier_p(char_identifier)
   if type(char_identifier) ~= 'string' then
     return false
   end
-  shard, faction, char = string.match(char_identifier, '^(%a+)/(%a+)/(%a+)$')
+  shard, faction, char = string.match(char_identifier, '^([%a*]+)/([%a*]+)/([%a*]+)$')
   if not char then
-    return false
+    -- what if it's just a single word?
+    char = string.match(char_identifier, '^([%a*]+)$')
+    if not char then
+      return false
+    else
+      shard = Inspect.Shard()
+      shard = shard and (shard.name or "Unknown") or "Unknown"
+    end
+    local me = Inspect.Unit.Detail("player")
+    if not faction then
+      faction = me and (me.faction or "Unknown") or "Unknown"
+    end
   end
   return shard, faction, char
 end
@@ -640,15 +660,54 @@ function lbag.char_identifier(character, faction, shard)
   local me = Inspect.Unit.Detail("player")
   if not shard then
     shard = Inspect.Shard()
-    shard = shard.name or "Unknown"
+    shard = shard and (shard.name or "Unknown") or "Unknown"
   end
   if not character then
-    character = me.name or "Unknown"
+    character = me and (me.name or "Unknown") or "Unknown"
   end
   if not faction then
-    faction = me.faction or "Unknown"
+    faction = me and (me.faction or "Unknown") or "Unknown"
   end
   return string.format("%s/%s/%s", tostring(shard), tostring(faction), tostring(character))
+end
+
+function lbag.match_charspecs(charspec1, charspec2)
+  local shard1, faction1, char1 = lbag.char_identifier_p(charspec1)
+  if not shard1 then
+    return false
+  end
+  local shard2, faction2, char2 = lbag.char_identifier_p(charspec2)
+  if not shard2 then
+    return false
+  end
+  if shard1 ~= shard2 and shard1 ~= '*' then
+    return false
+  end
+  if faction1 ~= faction2 and faction1 ~= '*' then
+    return false
+  end
+  if char1 ~= char2 and char1 ~= '*' then
+    return false
+  end
+  return true
+end
+
+function lbag.find_chars(char, faction, shard)
+  local chars = {}
+  local charspec = string.format("%s/%s/%s", shard, faction, char)
+  lbag.printf("find_chars: %s", charspec)
+  local c, f, s
+  for k, v in pairs(LibBaggotryAccount) do
+    if lbag.match_charspecs(charspec, k) then
+      table.insert(chars, k)
+    end
+  end
+  for k, v in pairs(LibBaggotryGlobal) do
+    if lbag.match_charspecs(charspec, k) then
+      table.insert(chars, k)
+    end
+  end
+  return chars
 end
 
 -- you gotta caaaaaaare, you gotta shaaaaaaaare
@@ -682,14 +741,24 @@ function lbag.share_inventory(sharing)
 end
 
 function lbag.char_inventory(character, faction, shard)
-  local whoami = lbag.char_identifier(character, faction, shard)
-  if LibBaggotryAccount[whoami] then
-    return LibBaggotryAccount[whoami]['inventory'] or {}
-  elseif LibBaggotryGlobal[whoami] then
-    return LibBaggotryGlobal[whoami]['inventory'] or {}
-  else
-    return {}
+  local char_list = lbag.find_chars(character, faction, shard)
+  local all_look_same_faction = true
+  local found_faction = nil
+  local all_look_same_shard = true
+  local found_shard = nil
+  local retval = {}
+  for _, charname in ipairs(char_list) do
+    local more_items = {}
+    if LibBaggotryAccount[charname] then
+      more_items = LibBaggotryAccount[charname]['inventory'] or {}
+    elseif LibBaggotryGlobal[charname] then
+      more_items = LibBaggotryGlobal[charname]['inventory'] or {}
+    end
+    for k, v in pairs(more_items) do
+      retval[charname .. ":" .. k] = v
+    end
   end
+  return retval
 end
 
 function lbag.char_item_details(charspec, slotspec)
@@ -700,7 +769,7 @@ function lbag.char_item_details(charspec, slotspec)
   end
   items = lbag.char_inventory(char, faction, shard)
   if items then
-    pat = string.format("^%s", slotspec)
+    pat = "^[%a/]-:?" .. slotspec
     for k, v in pairs(items) do
       if string.match(k, pat) then
 	-- dup table since some operations assume it's safe to mess with
@@ -709,6 +778,11 @@ function lbag.char_item_details(charspec, slotspec)
 	for k2, v2 in pairs(v) do
 	  newtable[k2] = v2
 	end
+	-- stash this information in case someone wants to do something else
+	-- with it
+        local s, c = lbag.slotspec_p(baggish)
+	newtable["_slotspec"] = s
+	newtable["_charspec"] = c
         retval[k] = newtable
       end
     end
