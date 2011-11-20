@@ -1,4 +1,4 @@
-VERSION=0.1
+VERSION=0.3
 PACKAGE=LibBaggotry
 
 include ../addon.mk

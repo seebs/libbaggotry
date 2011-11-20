@@ -82,7 +82,7 @@ end
 
 function Filter:new()
   local o = {
-  	slotspec = Utility.Item.Slot.All()
+  	slotspec = { Utility.Item.Slot.Inventory(), Utility.Item.Slot.Bank() }
   }
   setmetatable(o, self)
   self.__index = self
@@ -117,8 +117,120 @@ function Filter:dump()
   end
 end
 
+function lbag.strsplit(s, p)
+  local idx = string.find(s, p)
+  if idx then
+    return s.sub(s, 1, idx - 1), lbag.strsplit(string.sub(s, idx + 1), p)
+  else
+    return s
+  end
+end
+
+function lbag.relation(word)
+  if not word then
+    return nil, nil
+  end
+  local relation = Filter.include
+  local char = string.sub(word, 1, 1)
+  if char == '+' then
+    relation = Filter.require
+    word = string.sub(word, 2)
+  elseif char == '!' then
+    relation = Filter.exclude
+    word = string.sub(word, 2)
+  end
+  return relation, word
+end
+
+function lbag.filtery(filter, op, ...)
+  local args = { ... }
+  last = table.getn(args)
+  op(filter, ...)
+end
+
+function Filter:argstring()
+  return "bc:+C:eiq:+w"
+end
+
+function Filter:from_args(args)
+  local slotspecs = {}
+
+  if args['b'] then
+    table.insert(slotspecs, Utility.Item.Slot.Bank())
+  end
+  if args['e'] then
+    table.insert(slotspecs, Utility.Item.Slot.Equipment())
+  end
+  if args['i'] then
+    table.insert(slotspecs, Utility.Item.Slot.Inventory())
+  end
+  if args['w'] then
+    table.insert(slotspecs, Utility.Item.Slot.Wardrobe())
+  end
+
+  if args['C'] then
+    local newspec = {}
+    if string.match(args['C'], '/') then
+      charspec = args['C']
+    else
+      charspec = lbag.char_identifier(args['C'])
+    end
+    for i, v in ipairs(slotspecs) do
+      local slotspec, _ = lbag.slotspec_p(v)
+      if slotspec then
+        table.insert(newspec, string.format("%s:%s", charspec, slotspec))
+      else
+        ls.printf("Huh?  Got invalid slotspec '%s'.", v)
+      end
+    end
+    self:slot(unpack(newspec))
+  else
+    self:slot(unpack(slotspecs))
+  end
+  local filtery = function(op, ...) lbag.filtery(self, op, ...) end
+
+  if args['c'] then
+    for _, v in ipairs(args['c']) do
+      local op, word = lbag.relation(v)
+      filtery(op, 'category', word)
+    end
+  end
+
+  if args['q'] then
+    for _, v in ipairs(args['q']) do
+      local op, word = lbag.relation(v)
+      if lbag.rarity_p(word) then
+	filtery(op, 'rarity', '>=', word)
+      else
+	bag.printf("Error: '%s' is not a valid rarity.", word)
+      end
+    end
+  end
+
+  for _, v in pairs(args['leftover_args']) do
+    local op, word = lbag.relation(v)
+    if string.match(word, ':') then
+      filtery(op, lbag.strsplit(word, ':'))
+    else
+      filtery(op, 'name', word)
+    end
+  end
+end
+
 function Filter:find(baggish, disallow_alts)
-  all_items = lbag.expand_baggish(baggish or self.slotspec, disallow_alts)
+  local all_items
+  if baggish then
+    all_items = lbag.expand_baggish(baggish, disallow_alts)
+  else
+    all_items = {}
+    local some_items
+    for _, s in ipairs(self.slotspec) do
+      some_items = lbag.expand_baggish(s, disallow_alts)
+      for k, v in pairs(some_items) do
+        all_items[k] = v
+      end
+    end
+  end
   return_items = {}
   for slot, item in pairs(all_items) do
     if self:match(item, slot) then
@@ -128,14 +240,14 @@ function Filter:find(baggish, disallow_alts)
   return return_items
 end
 
-function Filter:slot(slotspec)
+function Filter:slot(slotspec, ...)
   if slotspec then
-    self.slotspec = slotspec
+    self.slotspec = { slotspec, ... }
   end
   return self.slotspec
 end
 
-function Filter:descr(descr)
+function Filter:describe(descr)
   self.descr = descr
 end
 
@@ -309,7 +421,13 @@ function lbag.filter()
 end
 
 function lbag.dump_item(item, slotspec)
-  lbag.printf("%s: %s [%d]", slotspec, item.name, item.stack or 1)
+  local prettystack
+  if item.stackMax and item.stackMax > 1 then
+    prettystack = string.format(" [%d/%d]", item.stack or 1, item.stackMax)
+  else
+    prettystack = ""
+  end
+  lbag.printf("%s: %s%s", slotspec, item.name, prettystack)
 end
 
 function lbag.slot_updated()
@@ -439,6 +557,40 @@ function lbag.stack(baggish, stack_size)
   end
 end
 
+function lbag.merge_items(baggish)
+  local item_list = lbag.expand_baggish(baggish)
+  local item_stacks = {}
+  for k, v in pairs(item_list) do
+    if item_stacks[v.type] then
+      local exist = item_stacks[v.type]
+      local where1
+      if lbag.slotspec_p(exist._slotspec) then
+	where1 = Utility.Item.Slot.Parse(exist._slotspec)
+      else
+        where1 = exist._slotspec
+      end
+      local where2 = Utility.Item.Slot.Parse(v._slotspec)
+      if where1 ~= where2 then
+        exist._slotspec = '(Mixed)'
+      else
+	-- if exist._slotspec were previously something like si01.002,
+	-- it will now be 'inventory'
+        exist._slotspec = where1
+      end
+      if exist._charspec ~= v._charspec then
+        exist._charspec = '(Mixed)'
+      end
+      exist._stacks = exist._stacks + 1
+      exist.stack = exist.stack + (v.stack or 1)
+    else
+      v._stacks = 1
+      v.stack = v.stack or 1
+      item_stacks[v.type] = v
+    end
+  end
+  return item_stacks
+end
+
 lbag.already_filtered = {}
 
 function lbag.rarity_p(rarity, permissive)
@@ -504,7 +656,7 @@ function lbag.expand_baggish(baggish, disallow_alts)
     end
   elseif type(baggish) == 'table' then
     -- could be a few things
-    for k, v in pairs(table) do
+    for k, v in pairs(baggish) do
       if Filter:filter_p(k) then
 	lbag.already_filtered[k] = true
         local item_list = k:find(lbag.slotspec_p(v) and v or nil, disallow_alts)
@@ -512,9 +664,16 @@ function lbag.expand_baggish(baggish, disallow_alts)
 	for k2, v2 in pairs(item_list) do
 	  retval[k2] = v2
 	end
-      elseif lbag.slotspec_p('k') and type(v) == 'table' then
+      elseif lbag.slotspec_p(k) and type(v) == 'table' then
         -- a slotspec:table pair is probably already good
 	retval[k] = v
+      elseif lbag.slotspec_p(v) then
+        local some_items = lbag.expand_baggish(v)
+	for k2, v2 in pairs(some_items) do
+	  retval[k2] = v2
+	end
+      else
+        lbag.printf("Unknown table item %s => %s", tostring(k), tostring(v))
       end
     end
   elseif lbag.slotspec_p(baggish) then
@@ -542,6 +701,9 @@ function lbag.expand_baggish(baggish, disallow_alts)
   for k, v in pairs(retval) do
     v.stack = v.stack or 1
     v.rarity = v.rarity or 'common'
+    if not v._slotspec then
+      v._slotspec = k
+    end
   end
   return retval
 end
@@ -686,7 +848,7 @@ function lbag.match_charspecs(charspec1, charspec2)
   if faction1 ~= faction2 and faction1 ~= '*' then
     return false
   end
-  if char1 ~= char2 and char1 ~= '*' then
+  if string.lower(char1) ~= string.lower(char2) and char1 ~= '*' then
     return false
   end
   return true
@@ -695,7 +857,6 @@ end
 function lbag.find_chars(char, faction, shard)
   local chars = {}
   local charspec = string.format("%s/%s/%s", shard, faction, char)
-  lbag.printf("find_chars: %s", charspec)
   local c, f, s
   for k, v in pairs(LibBaggotryAccount) do
     if lbag.match_charspecs(charspec, k) then
@@ -755,6 +916,8 @@ function lbag.char_inventory(character, faction, shard)
       more_items = LibBaggotryGlobal[charname]['inventory'] or {}
     end
     for k, v in pairs(more_items) do
+      v._charspec = charname
+      v._slotspec = k
       retval[charname .. ":" .. k] = v
     end
   end
@@ -778,11 +941,6 @@ function lbag.char_item_details(charspec, slotspec)
 	for k2, v2 in pairs(v) do
 	  newtable[k2] = v2
 	end
-	-- stash this information in case someone wants to do something else
-	-- with it
-        local s, c = lbag.slotspec_p(baggish)
-	newtable["_slotspec"] = s
-	newtable["_charspec"] = c
         retval[k] = newtable
       end
     end

@@ -1,6 +1,12 @@
+2011/11/20:
+	* Import argument processing magic from LootSorter/Baggotry
+	* Add merge_items() for displaying merged lists
+
 2011/11/18:
 	* Lots of cleanup to alt inventory code.
 	* Make rarity_color more usable.
+	* Allow multiple slotspecs
+	* Set default to (bank, inventory)
 
 2011/11/16:
 	* Added initial support for access to inventory on alts
