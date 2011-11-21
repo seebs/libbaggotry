@@ -168,6 +168,11 @@ function Filter:from_args(args)
     table.insert(slotspecs, Utility.Item.Slot.Wardrobe())
   end
 
+  if table.getn(slotspecs) == 0 then
+    table.insert(slotspecs, Utility.Item.Slot.Bank())
+    table.insert(slotspecs, Utility.Item.Slot.Inventory())
+  end
+
   if args['C'] then
     local newspec = {}
     if string.match(args['C'], '/') then

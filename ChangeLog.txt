@@ -1,6 +1,7 @@
 2011/11/20:
 	* Import argument processing magic from LootSorter/Baggotry
 	* Add merge_items() for displaying merged lists
+	* Make sure default is bank+inventory, rather than maybe empty
 
 2011/11/18:
 	* Lots of cleanup to alt inventory code.
