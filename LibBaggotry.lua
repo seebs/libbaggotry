@@ -404,6 +404,8 @@ function Filter:make_matcher(matchish, relop, value)
     return function(item, slot)
       matchish(item, slot, value)
     end
+  elseif Filter:filter_p(matchish) then
+    return function(item, slot) return not matchish:match(item, slot) end
   elseif match_type == 'string' then
     -- for now, assume that it's the name of a field, and
     -- that value is the thing to match it to
@@ -562,6 +564,61 @@ function lbag.stack(baggish, stack_size)
   end
 end
 
+function lbag.move_items(baggish, slotspec, swap_items)
+  -- the items we'd like to move...
+  local item_list = lbag.expand_baggish(baggish, true)
+  if not item_list then
+    lbag.printf("Error, couldn't find any items to move.")
+  end
+  if not lbag.slotspec_p(slotspec) then
+    lbag.printf("Error, got invalid slotspec '%s', can't move things to it.", slotspec)
+    return
+  end
+  local target_slots = Inspect.Item.List(slotspec)
+  local items_to_move = {}
+  local items_to_replace = {}
+  local empty_slots = {}
+  -- find items which are not in "baggish"
+  for slot, item in pairs(target_slots) do
+    if string.sub(slot, 3, 2) ~= 'bg' then
+      if item then
+        if swap_items and (not item_list[slot]) then
+	  table.insert(items_to_replace, slot)
+        end
+      else
+        table.insert(empty_slots, slot)
+      end
+    end
+  end
+  local anchored = "^" .. slotspec
+  local moving_any = false
+  for slot, item in pairs(item_list) do
+    if not string.match(slot, anchored) and string.sub(slot, 3, 2) ~= 'bg' then
+      moving_any = true
+      table.insert(items_to_move, slot)
+    end
+  end
+
+  if not moving_any then
+    return
+  end
+
+  -- now, we have some items to replace, and some items to move.
+  while items_to_move[1] and (items_to_replace[1] or empty_slots[1]) do
+    local this_item = items_to_move[1]
+    table.remove(items_to_move, 1)
+    local that_item
+    if items_to_replace[1] then
+      that_item = items_to_replace[1]
+      table.remove(items_to_replace, 1)
+    else
+      that_item = empty_slots[1]
+      table.remove(empty_slots, 1)
+    end
+    lbag.queue(Command.Item.Move, this_item, that_item)
+  end
+end
+
 function lbag.merge_items(baggish)
   local item_list = lbag.expand_baggish(baggish)
   local item_stacks = {}
@@ -640,6 +697,20 @@ function lbag.slotspec_p(spec)
     return false
   end
   return slotspec, charspec
+end
+
+function lbag.empty(slotspec)
+  local retval = {}
+  if lbag.slotspec_p(slotspec) then
+    local list = Inspect.Item.List(slotspec)
+    for s, i in pairs(list) do
+      if not i then
+        retval[s] = false
+      end
+    end
+  else
+    return {}
+  end
 end
 
 function lbag.expand_baggish(baggish, disallow_alts)

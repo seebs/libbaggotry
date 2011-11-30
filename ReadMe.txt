@@ -164,3 +164,12 @@ The utilities are still being worked on, but:
 		Returns a merged list in which stacks of the same item
 		are combined, with _charspec, _slotspec, etc. updated
 		suitably.  Keys will be item type, rather than slots.
+	Library.LibBaggotry.move_items(baggish, slotspec, replace_items)
+		Move items from baggish into slots described by slotspec.
+		If replace_items is truthy, will swap items into places that
+		contain items not matching baggish.
+		(If baggish is a filter, this is defined by filter.match,
+		if baggish is a list of items, it'd be items that are in
+		baggish.)
+		Note that bags themselves (sibg, sbbg) are filtered out
+		from both ends of this.

@@ -1,3 +1,7 @@
+2011/11/30:
+	* Remove bags from move_items()
+	* First pass of move_items()
+
 2011/11/20:
 	* Import argument processing magic from LootSorter/Baggotry
 	* Add merge_items() for displaying merged lists
