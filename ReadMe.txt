@@ -152,7 +152,7 @@ FILTERS AND EDITING THEM:
 
 You can create a filter using LibGetOpt, or something equivalent, using
 the
-	filter:from_args(table)
+	filter:from_args(table, cleanup)
 function; this is intended to be used with an argstring like that of
 	filter:argstring()
 This is the guts of the command line filter specification in LootSorter
@@ -172,14 +172,20 @@ where conditions are a series of strings looking like:
 creates a filter which includes everything that doesn't have a stack count
 of 15 or more.
 
-Strings in leftover_args which were not complete specifications will
-be converted; e.g, 'foo' becomes 'name:match:foo'.
+If cleanup is specified and truthy, strings in leftover_args which were not
+complete specifications will be converted; e.g, 'foo' becomes
+'name:match:foo', and if no inventory types were specified, the bank
+and inventory flags will be explicitly set.
 
 You can stash filters.  Filters are saved in per-account settings for
 now.  A stashed filter is a name => table pair where the table is similar
 to the from_args form.  So in these functions, "filter" really means
 "an argument table that can specify a filter".
 
+	Library.LibBaggotry.load_filter(table, cleanup)
+		Creates a filter; empty by default, or will take an
+		argument table.  If cleanup is true, argument table
+		will be normalized a bit.
 	Library.LibBaggotry.load_filter(name)
 	Library.LibBaggotry.save_filter(name, table)
 	Library.LibBaggotry.edit_filter(filter, context, callback, aux)

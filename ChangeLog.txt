@@ -1,6 +1,9 @@
 2012/01/07:
 	* Start building the filter editor tools, better support for
 	  making and modifying filters.
+	* Filter editor callback rules and behavior enhanced, name
+	  editing works, bank/inventory/equip/ward checkboxes work.
+	* Call this 0.6 because a lot has changed.
 
 2011/12/12:
 	* Switch to LibAccounts instead of charspec thing.  Stop showing

@@ -80,14 +80,14 @@ function Filter:filter_p(obj)
   end
 end
 
-function Filter:new(args)
+function Filter:new(args, cleanup)
   local o = {
   	slotspec = { Utility.Item.Slot.Inventory(), Utility.Item.Slot.Bank() }
   }
   setmetatable(o, self)
   self.__index = self
   if args then
-    o:from_args(args)
+    o:from_args(args, cleanup)
   end
   return o
 end
@@ -153,7 +153,7 @@ function Filter:argstring()
   return "bc:+C:eiq:+tw"
 end
 
-function Filter:from_args(args)
+function Filter:from_args(args, cleanup)
   if self == Filter then
     newfilter = lbag.filter()
   else
@@ -181,6 +181,10 @@ function Filter:from_args(args)
   if table.getn(slotspecs) == 0 then
     table.insert(slotspecs, Utility.Item.Slot.Bank())
     table.insert(slotspecs, Utility.Item.Slot.Inventory())
+    if cleanup then
+      args['b'] = true
+      args['i'] = true
+    end
   end
 
   newfilter:slot(unpack(slotspecs))
@@ -217,7 +221,9 @@ function Filter:from_args(args)
     else
       expanded = filtery(op, 'name', word)
     end
-    args['leftover_args'][idx] = expanded
+    if cleanup then
+      args['leftover_args'][idx] = expanded
+    end
   end
   return newfilter
 end
@@ -458,7 +464,9 @@ end
   the filter.
 ]]--
 
-local FilterEditor = {}
+local FilterEditor = {
+  match_lines = 8
+}
 
 function lbag.load_filter(name)
   if not LibBaggotryAccount['filters'] then
@@ -504,16 +512,13 @@ function lbag.edit_filter(filter, context, callback, aux)
     filter = lbag.load_filter(name) or {}
     filter['name'] = name
   end
-  local closed
-  if callback then
-    closed = function() callback(filter, aux) end
-  end
-  local filterwin = lbag.get_filter_editor(filter, context, closed)
+  local filterwin = lbag.get_filter_editor(filter, context, callback, aux)
+  return filterwin
 end
 
 lbag.filter_editor_stash = {}
 
-function lbag.get_filter_editor(filter, context, callback)
+function lbag.get_filter_editor(filter, context, callback, aux)
   local editor
   if not context then
     if not lbag.ui_context then
@@ -534,7 +539,9 @@ function lbag.get_filter_editor(filter, context, callback)
   lbag.printf("lbag: editor.filter is:")
   dump(editor.filter)
   editor.callback = callback
+  editor.callback_aux = aux
   editor:refresh()
+  return editor
 end
 
 function lbag.make_label(window, text, x, y)
@@ -575,16 +582,26 @@ function FilterEditor:new(context)
 
   lbag.make_label(o.window, "Name:", 8, 5);
   o.namebox = UI.CreateFrame("RiftTextfield", "LibBaggotry", o.window)
-  o.namebox:SetWidth(100)
+  o.namebox:SetWidth(150)
   o.namebox:SetPoint("TOPLEFT", o.window, "TOPLEFT", 70, t + 5)
   o.namebox:SetText('')
   o.namebox:SetBackgroundColor(0.25, 0.25, 0.25, 0.4)
+  o.namebox.Event.TextfieldChange = function() o:namechange() end
+
+  o.dummyname = UI.CreateFrame("Text", "LibBaggotry", o.namebox)
+  o.dummyname:SetAllPoints()
+  o.dummyname:SetFontColor(0.7, 0.7, 0.7)
+  o.dummyname:SetText("<name goes here>")
 
   lbag.make_label(o.window, "Includes:", 8, 25)
   o.bank = lbag.make_checkbox(o.window, "Bank", 10, 45)
+  o.bank.Event.CheckboxChange = function() o:boxchange(o.bank, 'b') end
   o.inventory = lbag.make_checkbox(o.window, "Inven", 70, 45)
+  o.inventory.Event.CheckboxChange = function() o:boxchange(o.inventory, 'i') end
   o.equip = lbag.make_checkbox(o.window, "Equip", 130, 45)
+  o.equip.Event.CheckboxChange = function() o:boxchange(o.equip, 'e') end
   o.wardrobe = lbag.make_checkbox(o.window, "Ward", 190, 45)
+  o.wardrobe.Event.CheckboxChange = function() o:boxchange(o.wardrobe, 'w') end
 
   o.savebutton = UI.CreateFrame("RiftButton", "LibBaggotry", o.window)
   o.savebutton:SetText('SAVE')
@@ -609,15 +626,35 @@ function FilterEditor:new(context)
   o.window.Event.WheelForward = function() o.scrollbar:Nudge(-3) end
 
   o.items = {}
-  for i = 1, 10 do
+  for i = 1, FilterEditor.match_lines do
     local f = o:makeitem(i)
     o.items[i] = f
-    f.frame:SetPoint("TOPLEFT", o.window, "TOPLEFT", l + 2, t + 60 + (20 * i))
-    f.frame:SetPoint("BOTTOMRIGHT", o.window, "TOPRIGHT", -2 + (r * -1) - 15, t + 78 + (20 * i))
+    f.frame:SetPoint("TOPLEFT", o.window, "TOPLEFT", l + 2, t + 110 + (20 * i))
+    f.frame:SetPoint("BOTTOMRIGHT", o.window, "TOPRIGHT", -2 + (r * -1) - 20, t + 128 + (20 * i))
     f.frame:SetBackgroundColor(0.25, 0.25, 0.25, 0.4)
   end
 
   return o
+end
+
+function FilterEditor:boxchange(box, flag)
+  if not self.filter then
+    return
+  end
+  self.filter[flag] = box:GetChecked()
+end
+
+function FilterEditor:namechange()
+  if not self.filter then
+    return
+  end
+  local new = self.namebox:GetText()
+  if string.len(new) > 0 then
+    self.dummyname:SetVisible(false)
+    self.filter['name'] = self.namebox:GetText()
+  else
+    self.dummyname:SetVisible(true)
+  end
 end
 
 function FilterEditor:makeitem(i)
@@ -631,13 +668,22 @@ function FilterEditor:refresh()
     self.filter = lbag.filter()
   end
   self.window:SetVisible(true)
-  self.namebox:SetText(self.filter.name or '<name goes here>')
+  if self.filter.name and string.len(self.filter.name) > 0 then
+    self.namebox:SetText(self.filter.name)
+    self.dummyname:SetVisible(false)
+  else
+    self.namebox:SetText('')
+    self.dummyname:SetVisible(true)
+  end
   self.bank:SetChecked(self.filter['b'] or false)
   self.equip:SetChecked(self.filter['e'] or false)
   self.inventory:SetChecked(self.filter['i'] or false)
   self.wardrobe:SetChecked(self.filter['w'] or false)
+  for i = 1, FilterEditor.match_lines do
+    self.items[i].frame:SetText('')
+  end
   for idx, value in ipairs(self.filter['leftover_args']) do
-    if idx <= 10 then
+    if idx <= FilterEditor.match_lines then
       self.items[idx].frame:SetText(value)
     end
   end
@@ -645,13 +691,13 @@ end
 
 function FilterEditor:apply()
   if self.callback then
-    self.callback()
+    self.callback(self.filter, self.callback_aux)
   end
 end
 
 function FilterEditor:save()
   if self.callback then
-    self.callback()
+    self.callback(self.filter, self.callback_aux)
   end
   if not self.filter then
     lbag.printf("Oops, got save request with no filter to save!")
@@ -661,12 +707,15 @@ function FilterEditor:save()
     lbag.save_filter(self.filter['name'], self.filter)
     lbag.printf("Saved filter: %s", self.filter['name'])
   end
-  self:close()
 end
 
 function FilterEditor:close()
   self.filter = nil
+  if self.callback then
+    self.callback(nil, self.callback_aux)
+  end
   self.callback = nil
+  self.callback_aux = nil
   self.window:SetVisible(false)
   local context = self.context
   if not lbag.filter_editor_stash[context] then
