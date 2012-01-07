@@ -80,12 +80,15 @@ function Filter:filter_p(obj)
   end
 end
 
-function Filter:new()
+function Filter:new(args)
   local o = {
   	slotspec = { Utility.Item.Slot.Inventory(), Utility.Item.Slot.Bank() }
   }
   setmetatable(o, self)
   self.__index = self
+  if args then
+    o:from_args(args)
+  end
   return o
 end
 
@@ -143,16 +146,19 @@ function lbag.relation(word)
 end
 
 function lbag.filtery(filter, op, ...)
-  local args = { ... }
-  last = table.getn(args)
-  op(filter, ...)
+  return op(filter, ...)
 end
 
 function Filter:argstring()
-  return "bc:+C:eiq:+w"
+  return "bc:+C:eiq:+tw"
 end
 
 function Filter:from_args(args)
+  if self == Filter then
+    newfilter = lbag.filter()
+  else
+    newfilter = self
+  end
   local slotspecs = {}
 
   if args['b'] then
@@ -168,31 +174,22 @@ function Filter:from_args(args)
     table.insert(slotspecs, Utility.Item.Slot.Wardrobe())
   end
 
+  if args['t'] then
+    newfilter.totals = true
+  end
+
   if table.getn(slotspecs) == 0 then
     table.insert(slotspecs, Utility.Item.Slot.Bank())
     table.insert(slotspecs, Utility.Item.Slot.Inventory())
   end
 
+  newfilter:slot(unpack(slotspecs))
+
   if args['C'] then
-    local newspec = {}
-    if string.match(args['C'], '/') then
-      charspec = args['C']
-    else
-      charspec = lbag.char_identifier(args['C'])
-    end
-    for i, v in ipairs(slotspecs) do
-      local slotspec, _ = lbag.slotspec_p(v)
-      if slotspec then
-        table.insert(newspec, string.format("%s:%s", charspec, slotspec))
-      else
-        ls.printf("Huh?  Got invalid slotspec '%s'.", v)
-      end
-    end
-    self:slot(unpack(newspec))
-  else
-    self:slot(unpack(slotspecs))
+    newfilter:char(args['C'])
   end
-  local filtery = function(op, ...) lbag.filtery(self, op, ...) end
+
+  local filtery = function(op, ...) return lbag.filtery(newfilter, op, ...) end
 
   if args['c'] then
     for _, v in ipairs(args['c']) do
@@ -212,14 +209,17 @@ function Filter:from_args(args)
     end
   end
 
-  for _, v in pairs(args['leftover_args']) do
+  for idx, v in pairs(args['leftover_args']) do
     local op, word = lbag.relation(v)
+    local expanded
     if string.match(word, ':') then
-      filtery(op, lbag.strsplit(word, ':'))
+      expanded = filtery(op, lbag.strsplit(word, ':'))
     else
-      filtery(op, 'name', word)
+      expanded = filtery(op, 'name', word)
     end
+    args['leftover_args'][idx] = expanded
   end
+  return newfilter
 end
 
 function Filter:find(baggish, disallow_alts)
@@ -230,9 +230,11 @@ function Filter:find(baggish, disallow_alts)
     all_items = {}
     local some_items
     for _, s in ipairs(self.slotspec) do
-      some_items = lbag.expand_baggish(s, disallow_alts)
-      for k, v in pairs(some_items) do
-        all_items[k] = v
+      for _, char in ipairs(lbag.find_chars(self.charspec or lbag.whoami())) do
+        some_items = lbag.expand_baggish(char .. ':' .. s, disallow_alts)
+        for k, v in pairs(some_items) do
+          all_items[k] = v
+        end
       end
     end
   end
@@ -242,6 +244,9 @@ function Filter:find(baggish, disallow_alts)
       return_items[slot] = item
     end
   end
+  if self.totals then
+    return_items = lbag.merge_items(return_items)
+  end
   return return_items
 end
 
@@ -250,6 +255,13 @@ function Filter:slot(slotspec, ...)
     self.slotspec = { slotspec, ... }
   end
   return self.slotspec
+end
+
+function Filter:char(charspec)
+  if charspec then
+    self.charspec = charspec
+  end
+  return self.charspec
 end
 
 function Filter:describe(descr)
@@ -289,6 +301,7 @@ function Filter:include(matchish, relop, value)
     self.includes = self.includes or {}
     table.insert(self.includes, newfunc)
   end
+  return newfunc()
 end
 
 function Filter:require(matchish, relop, value)
@@ -297,6 +310,7 @@ function Filter:require(matchish, relop, value)
     self.requires = self.requires or {}
     table.insert(self.requires, newfunc)
   end
+  return '+' .. newfunc()
 end
 
 function Filter:exclude(matchish, relop, value)
@@ -305,6 +319,7 @@ function Filter:exclude(matchish, relop, value)
     self.excludes = self.excludes or {}
     table.insert(self.excludes, newfunc)
   end
+  return '!' .. newfunc()
 end
 
 function Filter:relop(relop, value1, value2)
@@ -360,7 +375,7 @@ end
   ]]
 function Filter:matcher(relop, item, slot, matchish, value)
   if not item then
-    return string.format("%s %s %s", matchish, relop, value)
+    return string.format("%s:%s:%s", matchish, relop, value)
   end
   if type(item) ~= 'table' then
     return false
@@ -423,8 +438,8 @@ function Filter:make_matcher(matchish, relop, value)
 end
 
 -- and expose a little tiny bit of that:
-function lbag.filter()
-  return Filter:new()
+function lbag.filter(...)
+  return Filter:new(...)
 end
 
 function lbag.dump_item(item, slotspec)
@@ -437,18 +452,245 @@ function lbag.dump_item(item, slotspec)
   lbag.printf("%s: %s%s", slotspec, item.name, prettystack)
 end
 
+--[[
+  a filter editor is a table of various stuff, including UI frames
+  galore, that can be bound to a filter and will then let you edit
+  the filter.
+]]--
+
+local FilterEditor = {}
+
+function lbag.load_filter(name)
+  if not LibBaggotryAccount['filters'] then
+    LibBaggotryAccount['filters'] = {}
+  end
+  return LibBaggotryAccount['filters'][name]
+end
+
+function lbag.save_filter(name, filter)
+  if not LibBaggotryAccount['filters'] then
+    LibBaggotryAccount['filters'] = {}
+  end
+  filter['name'] = name
+  LibBaggotryAccount['filters'][name] = filter
+end
+
+function lbag.deep_copy(from, visited)
+  local to = {}
+  for k, v in pairs(from) do
+    if type(v) == 'table' then
+      if visited[v] then
+        lbag.printf("Warning: Deep copy failed due to reference loop.")
+      else
+        visited[v] = true
+	to[k] = lbag.deep_copy(v, visited)
+      end
+    else
+      to[k] = v
+    end
+  end
+  return to
+end
+
+function lbag.copy_filter_args(filter)
+  local visited = {}
+  newfilter = lbag.deep_copy(filter, visited)
+  return newfilter
+end
+
+function lbag.edit_filter(filter, context, callback, aux)
+  if type(filter) == 'string' then
+    local name = filter
+    filter = lbag.load_filter(name) or {}
+    filter['name'] = name
+  end
+  local closed
+  if callback then
+    closed = function() callback(filter, aux) end
+  end
+  local filterwin = lbag.get_filter_editor(filter, context, closed)
+end
+
+lbag.filter_editor_stash = {}
+
+function lbag.get_filter_editor(filter, context, callback)
+  local editor
+  if not context then
+    if not lbag.ui_context then
+      lbag.ui_context = UI.CreateContext("LibBaggotry")
+    end
+    context = lbag.ui_context
+  end
+  if not lbag.filter_editor_stash[context] then
+    lbag.filter_editor_stash[context] = {}
+  end
+  if lbag.filter_editor_stash[context][1] then
+    editor = lbag.filter_editor_stash[context][1]
+    table.remove(lbag.filter_editor_stash[context], 1)
+  else
+    editor = FilterEditor:new(context)
+  end
+  editor.filter = filter
+  lbag.printf("lbag: editor.filter is:")
+  dump(editor.filter)
+  editor.callback = callback
+  editor:refresh()
+end
+
+function lbag.make_label(window, text, x, y)
+  local l, t, r, b = window:GetTrimDimensions()
+  local dummy = UI.CreateFrame("Text", "LibBaggotry", window)
+  dummy:SetText(text)
+  dummy:SetPoint("TOPLEFT", window, "TOPLEFT", l + x, t + y)
+end
+
+function lbag.make_checkbox(window, text, x, y)
+  local l, t, r, b = window:GetTrimDimensions()
+  if text then
+    lbag.make_label(window, text, x + 15, y - 2)
+  end
+  local dummy = UI.CreateFrame("RiftCheckbox", "LibBaggotry", window)
+  dummy:SetPoint("TOPLEFT", window, "TOPLEFT", l + x, t + y)
+  return dummy
+end
+
+function FilterEditor:new(context)
+  lbag.printf("Making new FilterEditor.")
+  local o = { }
+  setmetatable(o, self)
+  self.__index = self
+  o.window = UI.CreateFrame("RiftWindow", "LibBaggotry", context)
+  o.window:SetWidth(300)
+  o.window:SetHeight(400)
+  o.window:SetTitle("Filter")
+  Library.LibDraggable.draggify(o.window)
+  o.context = context
+
+  local l, t, r, b = o.window:GetTrimDimensions()
+
+  o.closebutton = UI.CreateFrame("RiftButton", "LibBaggotry", o.window)
+  o.closebutton:SetSkin("close")
+  o.closebutton:SetPoint("TOPRIGHT", o.window, "TOPRIGHT", -4, 15)
+  o.closebutton.Event.LeftPress = function() o:close() end
+
+  lbag.make_label(o.window, "Name:", 8, 5);
+  o.namebox = UI.CreateFrame("RiftTextfield", "LibBaggotry", o.window)
+  o.namebox:SetWidth(100)
+  o.namebox:SetPoint("TOPLEFT", o.window, "TOPLEFT", 70, t + 5)
+  o.namebox:SetText('')
+  o.namebox:SetBackgroundColor(0.25, 0.25, 0.25, 0.4)
+
+  lbag.make_label(o.window, "Includes:", 8, 25)
+  o.bank = lbag.make_checkbox(o.window, "Bank", 10, 45)
+  o.inventory = lbag.make_checkbox(o.window, "Inven", 70, 45)
+  o.equip = lbag.make_checkbox(o.window, "Equip", 130, 45)
+  o.wardrobe = lbag.make_checkbox(o.window, "Ward", 190, 45)
+
+  o.savebutton = UI.CreateFrame("RiftButton", "LibBaggotry", o.window)
+  o.savebutton:SetText('SAVE')
+  o.savebutton:SetPoint("BOTTOMLEFT", o.window, "BOTTOMLEFT", l + 5, (b * -1) -5)
+  o.savebutton:SetWidth(125)
+  o.savebutton.Event.LeftPress = function() o:save() end
+
+  o.applybutton = UI.CreateFrame("RiftButton", "LibBaggotry", o.window)
+  o.applybutton:SetText('APPLY')
+  o.applybutton:SetPoint("BOTTOMRIGHT", o.window, "BOTTOMRIGHT", (-1 * r) - 18, (b * -1) -5)
+  o.applybutton:SetWidth(125)
+  o.applybutton.Event.LeftPress = function() o:apply() end
+
+  o.scrollbar = UI.CreateFrame("RiftScrollbar", "LibBaggotry", o.window)
+  o.scrollbar:SetPoint("TOPRIGHT", o.window, "TOPRIGHT", (-1 * r) - 2, t + 40)
+  o.scrollbar:SetPoint("BOTTOMRIGHT", o.window, "BOTTOMRIGHT", (-1 * r) - 2, (-1 * b) - 2)
+  o.scrollbar:SetEnabled(false)
+  o.scrollbar:SetRange(0, 1)
+  o.scrollbar:SetPosition(0)
+  o.scrollbar.Event.ScrollbarChange = function() o:scroll() end
+  o.window.Event.WheelBack = function() o.scrollbar:Nudge(3) end
+  o.window.Event.WheelForward = function() o.scrollbar:Nudge(-3) end
+
+  o.items = {}
+  for i = 1, 10 do
+    local f = o:makeitem(i)
+    o.items[i] = f
+    f.frame:SetPoint("TOPLEFT", o.window, "TOPLEFT", l + 2, t + 60 + (20 * i))
+    f.frame:SetPoint("BOTTOMRIGHT", o.window, "TOPRIGHT", -2 + (r * -1) - 15, t + 78 + (20 * i))
+    f.frame:SetBackgroundColor(0.25, 0.25, 0.25, 0.4)
+  end
+
+  return o
+end
+
+function FilterEditor:makeitem(i)
+  return { frame = UI.CreateFrame("Text", "LibBaggotry", self.window) }
+end
+
+
+function FilterEditor:refresh()
+  lbag.printf("FilterEditor: refresh")
+  if not self.filter then
+    self.filter = lbag.filter()
+  end
+  self.window:SetVisible(true)
+  self.namebox:SetText(self.filter.name or '<name goes here>')
+  self.bank:SetChecked(self.filter['b'] or false)
+  self.equip:SetChecked(self.filter['e'] or false)
+  self.inventory:SetChecked(self.filter['i'] or false)
+  self.wardrobe:SetChecked(self.filter['w'] or false)
+  for idx, value in ipairs(self.filter['leftover_args']) do
+    if idx <= 10 then
+      self.items[idx].frame:SetText(value)
+    end
+  end
+end
+
+function FilterEditor:apply()
+  if self.callback then
+    self.callback()
+  end
+end
+
+function FilterEditor:save()
+  if self.callback then
+    self.callback()
+  end
+  if not self.filter then
+    lbag.printf("Oops, got save request with no filter to save!")
+    return
+  end
+  if self.filter['name'] then
+    lbag.save_filter(self.filter['name'], self.filter)
+    lbag.printf("Saved filter: %s", self.filter['name'])
+  end
+  self:close()
+end
+
+function FilterEditor:close()
+  self.filter = nil
+  self.callback = nil
+  self.window:SetVisible(false)
+  local context = self.context
+  if not lbag.filter_editor_stash[context] then
+    lbag.filter_editor_stash[context] = {}
+  end
+  table.insert(lbag.filter_editor_stash[context], self)
+end
+
 function lbag.slot_updated()
-  local whoami = lbag.char_identifier()
+  local whoami = lbag.whoami()
   local global_or_account
+  local shard = lbag.shard()
   if lbag.share_inventory_p() then
     global_or_account = LibBaggotryGlobal
   else
     global_or_account = LibBaggotryAccount
   end
-  if not global_or_account[whoami] then
-    global_or_account[whoami] = {}
+  if not global_or_account[shard] then
+    global_or_account[shard] = {}
   end
-  global_or_account[whoami]['inventory'] = Inspect.Item.Detail(Utility.Item.Slot.All())
+  if not global_or_account[shard][whoami] then
+    global_or_account[shard][whoami] = {}
+  end
+  global_or_account[shard][whoami]['inventory'] = Inspect.Item.Detail(Utility.Item.Slot.All())
 end
 
 function lbag.stack_one_item(item_list, stack_size)
@@ -639,8 +881,8 @@ function lbag.merge_items(baggish)
 	-- it will now be 'inventory'
         exist._slotspec = where1
       end
-      if exist._charspec ~= v._charspec then
-        exist._charspec = '(Mixed)'
+      if exist._character ~= v._character then
+        exist._character = '(Mixed)'
       end
       exist._stacks = exist._stacks + 1
       exist.stack = exist.stack + (v.stack or 1)
@@ -683,20 +925,17 @@ function lbag.slotspec_p(spec)
   if type(spec) ~= 'string' then
     return false
   end
-  local charspec, slotspec = string.match(spec, '([%a/*]+):(.*)')
+  local character, slotspec = string.match(spec, '([%a*]+):(.*)')
   if not slotspec then
     slotspec = spec
   else
-    -- an invalid charspec means this isn't a valid fancy slotspec
-    if not lbag.char_identifier_p(charspec) then
-      return false
-    end
+    character = string.lower(character)
   end
   val, err = pcall(function() Utility.Item.Slot.Parse(slotspec) end)
   if err then
     return false
   end
-  return slotspec, charspec
+  return slotspec, character
 end
 
 function lbag.empty(slotspec)
@@ -721,6 +960,7 @@ function lbag.expand_baggish(baggish, disallow_alts)
   if baggish == true then
     baggish = Utility.Item.Slot.All()
   end
+  local whoami = lbag.whoami()
   if Filter:filter_p(baggish) then
     if lbag.already_filtered[baggish] then
       lbag.printf("Encountered filter loop, returning empty set.")
@@ -753,16 +993,16 @@ function lbag.expand_baggish(baggish, disallow_alts)
       end
     end
   elseif lbag.slotspec_p(baggish) then
-    local slotspec, charspec = lbag.slotspec_p(baggish)
-    if charspec then
+    local slotspec, character = lbag.slotspec_p(baggish)
+    if character and character ~= whoami then
       if disallow_alts then
         lbag.printf("No can do:  Can't use alts with this function.")
 	retval = {}
       else
-        retval = lbag.char_item_details(charspec, slotspec)
+        retval = lbag.char_item_details(character, slotspec)
       end
     else
-      retval = Inspect.Item.Detail(baggish)
+      retval = Inspect.Item.Detail(slotspec)
     end
   elseif type(baggish) == 'function' then
     local filter = lbag:filter()
@@ -779,6 +1019,9 @@ function lbag.expand_baggish(baggish, disallow_alts)
     v.rarity = v.rarity or 'common'
     if not v._slotspec then
       v._slotspec = k
+    end
+    if not v._character then
+      v._character = whoami
     end
   end
   return retval
@@ -872,76 +1115,22 @@ function lbag.scratch_slot()
   return false
 end
 
-function lbag.char_identifier_p(char_identifier)
-  if type(char_identifier) ~= 'string' then
-    return false
-  end
-  shard, faction, char = string.match(char_identifier, '^([%a*]+)/([%a*]+)/([%a*]+)$')
-  if not char then
-    -- what if it's just a single word?
-    char = string.match(char_identifier, '^([%a*]+)$')
-    if not char then
-      return false
-    else
-      shard = Inspect.Shard()
-      shard = shard and (shard.name or "Unknown") or "Unknown"
-    end
-    local me = Inspect.Unit.Detail("player")
-    if not faction then
-      faction = me and (me.faction or "Unknown") or "Unknown"
-    end
-  end
-  return shard, faction, char
-end
-
-function lbag.char_identifier(character, faction, shard)
-  local me = Inspect.Unit.Detail("player")
-  if not shard then
-    shard = Inspect.Shard()
-    shard = shard and (shard.name or "Unknown") or "Unknown"
-  end
-  if not character then
-    character = me and (me.name or "Unknown") or "Unknown"
-  end
-  if not faction then
-    faction = me and (me.faction or "Unknown") or "Unknown"
-  end
-  return string.format("%s/%s/%s", tostring(shard), tostring(faction), tostring(character))
-end
-
-function lbag.match_charspecs(charspec1, charspec2)
-  local shard1, faction1, char1 = lbag.char_identifier_p(charspec1)
-  if not shard1 then
-    return false
-  end
-  local shard2, faction2, char2 = lbag.char_identifier_p(charspec2)
-  if not shard2 then
-    return false
-  end
-  if shard1 ~= shard2 and shard1 ~= '*' then
-    return false
-  end
-  if faction1 ~= faction2 and faction1 ~= '*' then
-    return false
-  end
-  if string.lower(char1) ~= string.lower(char2) and char1 ~= '*' then
-    return false
-  end
-  return true
-end
-
-function lbag.find_chars(char, faction, shard)
+function lbag.find_chars(char)
   local chars = {}
-  local charspec = string.format("%s/%s/%s", shard, faction, char)
-  local c, f, s
-  for k, v in pairs(LibBaggotryAccount) do
-    if lbag.match_charspecs(charspec, k) then
-      table.insert(chars, k)
+  local shard = lbag.shard()
+  char = string.lower(char)
+  if LibBaggotryAccount[shard] then
+    for k, v in pairs(LibBaggotryAccount[shard]) do
+      if k == char or (char == '*' and Library.LibAccounts.available_p(k)) then
+        table.insert(chars, k)
+      end
     end
   end
-  for k, v in pairs(LibBaggotryGlobal) do
-    if lbag.match_charspecs(charspec, k) then
-      table.insert(chars, k)
+  if LibBaggotryGlobal[shard] then
+    for k, v in pairs(LibBaggotryGlobal[shard]) do
+      if k == char or (char == '*' and Library.LibAccounts.available_p(k)) then
+	table.insert(chars, k)
+      end
     end
   end
   return chars
@@ -949,16 +1138,37 @@ end
 
 -- you gotta caaaaaaare, you gotta shaaaaaaaare
 function lbag.share_inventory_p()
-  if LibBaggotryAccount[whoami] then
-    return LibBaggotryAccount[whoami]['share_inventory']
+  local whoami = lbag.whoami()
+  local shard = lbag.shard()
+  if LibBaggotryAccount[shard] and LibBaggotryAccount[shard][whoami] then
+    return LibBaggotryAccount[shard][whoami]['share_inventory']
   else
     return false
   end
 end
 
+function lbag.shard()
+  if not lbag.shard_name then
+    local ishard = Inspect.Shard()
+    if ishard then
+      lbag.shard_name = ishard.name
+    end
+  end
+  return lbag.shard_name or "Unknown"
+end
+
+function lbag.whoami()
+  local whoami
+  local me = Inspect.Unit.Detail("player")
+  if me then
+    whoami = string.lower(me.name)
+  end
+  return whoami or "Unknown"
+end
+
 function lbag.share_inventory(sharing)
-  local whoami = lbag.char_identifier()
   local was_sharing
+  local whoami = lbag.whoami()
   if LibBaggotryAccount[whoami] then
     was_sharing = LibBaggotryAccount[whoami]['share_inventory']
   else
@@ -977,22 +1187,20 @@ function lbag.share_inventory(sharing)
   end
 end
 
-function lbag.char_inventory(character, faction, shard)
-  local char_list = lbag.find_chars(character, faction, shard)
-  local all_look_same_faction = true
-  local found_faction = nil
-  local all_look_same_shard = true
-  local found_shard = nil
+function lbag.char_inventory(character)
+  -- this is useful because 'character' might have been '*'
+  local char_list = lbag.find_chars(character)
+  local shard = lbag.shard()
   local retval = {}
   for _, charname in ipairs(char_list) do
     local more_items = {}
-    if LibBaggotryAccount[charname] then
-      more_items = LibBaggotryAccount[charname]['inventory'] or {}
-    elseif LibBaggotryGlobal[charname] then
-      more_items = LibBaggotryGlobal[charname]['inventory'] or {}
+    if LibBaggotryAccount[shard] and LibBaggotryAccount[shard][charname] then
+      more_items = LibBaggotryAccount[shard][charname]['inventory'] or {}
+    elseif LibBaggotryGlobal[shard] and LibBaggotryGlobal[shard][charname] then
+      more_items = LibBaggotryGlobal[shard][charname]['inventory'] or {}
     end
     for k, v in pairs(more_items) do
-      v._charspec = charname
+      v._character = charname
       v._slotspec = k
       retval[charname .. ":" .. k] = v
     end
@@ -1000,13 +1208,9 @@ function lbag.char_inventory(character, faction, shard)
   return retval
 end
 
-function lbag.char_item_details(charspec, slotspec)
+function lbag.char_item_details(character, slotspec)
   local retval = {}
-  local shard, faction, char = lbag.char_identifier_p(charspec)
-  if not shard then
-    return retval
-  end
-  items = lbag.char_inventory(char, faction, shard)
+  items = lbag.char_inventory(character)
   if items then
     pat = "^[%a/]-:?" .. slotspec
     for k, v in pairs(items) do

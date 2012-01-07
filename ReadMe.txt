@@ -69,28 +69,6 @@ Relational operators try to handle nil values sanely, which means that
 a nil value is less than any non-nil value, and two nil values are equal
 to each other.
 
-You can create a filter using LibGetOpt, or something equivalent, using
-the
-	filter:from_args(table)
-function; this is intended to be used with an argstring like that of
-	filter:argstring()
-This is the guts of the command line filter specification in LootSorter
-and Baggotry; however, you can also use it to create a
-SavedVariables-friendly definition of a filter, if you pass it a
-similar structure.  If you don't want to mess with the getopt-type
-functionality, just pass it:
-
-	{
-		leftover_args = { conditions }
-	}
-
-where conditions are a series of strings looking like:
-	[+!]field:relop:value
-+ means requires, ! means excludes, default is include.  So for instance:
-	!stack:>:15
-creates a filter which includes everything that doesn't have a stack count
-of 15 or more.
-
 Next big feature:  Bagground Processing (TM).  When a LibBaggotry function
 needs to perform many operations, it performs one per update rather than
 spamming them all at once.  If you have a cheapish video card, this should
@@ -129,7 +107,7 @@ The utilities are still being worked on, but:
 		Returns true if 'slotspec' is a valid slotspec.  As a
 		bonus feature, if slotspec is of the form
 			char_identifier:slotspec
-		yields slotspec, charspec (two values) so you can do
+		yields slotspec, character so you can do
 		fancy things like look in other inventories.
 	Library.LibBaggotry.rarity_p(rarity, permissive)
 		Returns a non-nil/false value if 'rarity' is a valid rarity
@@ -152,17 +130,13 @@ The utilities are still being worked on, but:
 		Items registered this way are processed, one per frame,
 		in the order they were queued.  The argument list is
 		stored and passed in when the function is invoked.
-	Library.LibBaggotry.char_identifier(character, faction, shard)	
-		yields "Shard/faction/Character", using provided values or
-		the current shard, faction, or character.
-	Library.LibBaggotry.char_identifier_p(string)
-		Determines whether string looks to be a valid char_identifier.
-		Returns nil or shard, faction, charname.
+	Library.LibBaggotry.known_char(string)
+		Indicates whether string is the name of a known character.
 	Library.LibBaggotry.rarity_color(rarity)
 		returns r, g, b
 	Library.LibBaggotry.merge_items(baggish)
 		Returns a merged list in which stacks of the same item
-		are combined, with _charspec, _slotspec, etc. updated
+		are combined, with _character, _slotspec, etc. updated
 		suitably.  Keys will be item type, rather than slots.
 	Library.LibBaggotry.move_items(baggish, slotspec, replace_items)
 		Move items from baggish into slots described by slotspec.
@@ -173,3 +147,54 @@ The utilities are still being worked on, but:
 		baggish.)
 		Note that bags themselves (sibg, sbbg) are filtered out
 		from both ends of this.
+
+FILTERS AND EDITING THEM:
+
+You can create a filter using LibGetOpt, or something equivalent, using
+the
+	filter:from_args(table)
+function; this is intended to be used with an argstring like that of
+	filter:argstring()
+This is the guts of the command line filter specification in LootSorter
+and Baggotry; however, you can also use it to create a
+SavedVariables-friendly definition of a filter, if you pass it a
+similar structure.  If you don't want to mess with the getopt-type
+functionality, just pass it:
+
+	{
+		leftover_args = { conditions }
+	}
+
+where conditions are a series of strings looking like:
+	[+!]field:relop:value
++ means requires, ! means excludes, default is include.  So for instance:
+	!stack:>:15
+creates a filter which includes everything that doesn't have a stack count
+of 15 or more.
+
+Strings in leftover_args which were not complete specifications will
+be converted; e.g, 'foo' becomes 'name:match:foo'.
+
+You can stash filters.  Filters are saved in per-account settings for
+now.  A stashed filter is a name => table pair where the table is similar
+to the from_args form.  So in these functions, "filter" really means
+"an argument table that can specify a filter".
+
+	Library.LibBaggotry.load_filter(name)
+	Library.LibBaggotry.save_filter(name, table)
+	Library.LibBaggotry.edit_filter(filter, context, callback, aux)
+		If filter is a string, operates on load_filter(filter),
+		otherwise on a provided table.  Creates and opens a
+		filter editor on the given filter, calling
+			callback(filter, aux)
+		when the filter is applied or saved.  If filter has
+		a name, the save button will save it.
+
+		Context is either a UI context of your choice, or nil.
+		If you don't provide one, the editor will be in the
+		LibBaggotry UI Context.
+	Library.LibBaggotry.copy_filter_args(filter)
+		Creates a duplicate of a filter argument tree.  This is a
+		deepish copy, although it won't copy loops.  It
+		exists so that you can make a copy of the from_args
+		format to pass to the filter editor stuff.

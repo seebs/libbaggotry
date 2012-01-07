@@ -1,3 +1,11 @@
+2012/01/07:
+	* Start building the filter editor tools, better support for
+	  making and modifying filters.
+
+2011/12/12:
+	* Switch to LibAccounts instead of charspec thing.  Stop showing
+	  things across shards.
+
 2011/11/30:
 	* Remove bags from move_items()
 	* First pass of move_items()

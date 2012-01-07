@@ -4,6 +4,12 @@ Version = "VERSION"
 
 Email = "seebs@seebs.net"
 
+Dependencies = {
+	LibAccounts = { "required", "before" },
+	LibDraggable = { "required", "before" },
+}
+Embed = { LibAccounts = true, LibDraggable = true }
+
 Name = {
   English = "LibBaggotry",
   French = "LibBaggotry",
