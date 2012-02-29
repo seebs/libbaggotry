@@ -1,3 +1,6 @@
+2012/01/22:
+	* Add function:<code> to filters
+
 2012/01/07:
 	* Start building the filter editor tools, better support for
 	  making and modifying filters.

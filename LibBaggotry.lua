@@ -44,7 +44,9 @@ function lbag.variables_loaded(name)
   end
 end
 
-lbag.color_rarity = { grey = 'trash',
+lbag.color_rarity = {
+	trash = 'sellable',
+	grey = 'sellable',
 	white = 'common',
 	green = 'uncommon',
 	blue = 'rare',
@@ -52,16 +54,18 @@ lbag.color_rarity = { grey = 'trash',
 	orange = 'relic',
 	yellow = 'quest',
 }
-lbag.rarity_color_table = { trash = { r = .34375, g = .34375, b = 34375 },
+lbag.rarity_color_table = { sellable = { r = .34375, g = .34375, b = 34375 },
 	common = { r = .98, g = .98, b = .98 },
 	uncommon = { r = 0, g = .797, b = 0 },
 	rare = { r = .148, g = .496, b = .977 },
 	epic = { r = .676, g = .281, b = .98 },
 	relic = { r = 1, g = .5, b = 0 },
+	-- no idea
+	transcendant = { r = 1, g = 1, b = 1 },
 	quest = { r = 1, g = 1, b = 0 },
 }
 
-lbag.bestpony = { 'trash', 'common', 'uncommon', 'rare', 'epic', 'relic', 'quest' }
+lbag.bestpony = { 'sellable', 'common', 'uncommon', 'rare', 'epic', 'relic', 'transcendant', 'quest' }
 
 lbag.command_queue = {}
 
@@ -216,7 +220,10 @@ function Filter:from_args(args, cleanup)
   for idx, v in pairs(args['leftover_args']) do
     local op, word = lbag.relation(v)
     local expanded
-    if string.match(word, ':') then
+    if string.sub(word, 1, 9) == 'function:' then
+      -- function: is matched differently from other pieces
+      expanded = filtery(op, 'function', string.sub(word, 10))
+    elseif string.match(word, ':') then
       expanded = filtery(op, lbag.strsplit(word, ':'))
     else
       expanded = filtery(op, 'name', word)
@@ -409,6 +416,8 @@ function Filter:make_matcher(matchish, relop, value)
     value = relop
     if matchish == 'category' or matchish == 'name' then
       relop = 'match'
+    elseif matchish == 'function' then
+      relop = 'execute'
     else
       relop = '=='
     end
@@ -434,8 +443,23 @@ function Filter:make_matcher(matchish, relop, value)
       value = string.lower(value)
     end
     -- closure to stash matchish and value
-    return function(item, slot)
-      return Filter:matcher(relop, item, slot, matchish, value)
+    if relop == 'execute' then
+      local code = string.format("local item, slot = ...; %s", value)
+      local func, error = loadstring(code)
+      if error then
+        func = function(...) return false end
+	lbag.printf("Function '%s' couldn't be parsed: %s", value, error);
+      end
+      return function(item, slot)
+        if not item then
+	  return 'function:' .. value
+	end
+	return func(item, slot)
+      end
+    else
+      return function(item, slot)
+        return Filter:matcher(relop, item, slot, matchish, value)
+      end
     end
   else
     lbag.printf("Unknown match specifier, type '%s'", match_type)

@@ -172,6 +172,14 @@ where conditions are a series of strings looking like:
 creates a filter which includes everything that doesn't have a stack count
 of 15 or more.
 
+You can also use
+	[+!]function:code
+which will create a function with the body:
+	local item, slot = ...; code
+and execute that.  You are responsible for returning a value from this
+function; if you don't, it'll be always false.
+
+
 If cleanup is specified and truthy, strings in leftover_args which were not
 complete specifications will be converted; e.g, 'foo' becomes
 'name:match:foo', and if no inventory types were specified, the bank
