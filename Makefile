@@ -1,6 +1,6 @@
-VERSION=0.6
+VERSION=0.8
 PACKAGE=LibBaggotry
-EMBEDS=libaccounts libdraggable
+EMBEDS=libaccounts enfiltrate
 
 include ../addon.mk
 

@@ -6,9 +6,9 @@ Email = "seebs@seebs.net"
 
 Dependencies = {
 	LibAccounts = { "required", "before" },
-	LibDraggable = { "required", "before" },
+	LibEnfiltrate = { "required", "before" },
 }
-Embed = { LibAccounts = true, LibDraggable = true }
+Embed = { LibAccounts = true, LibEnfiltrate = true }
 
 Name = {
   English = "LibBaggotry",
@@ -31,5 +31,5 @@ RunOnStartup = {
   "LibBaggotry.lua"
 }
 
-Environment = { "1.6" }
+Environment = { "1.6", "1.7", "1.8" }
 

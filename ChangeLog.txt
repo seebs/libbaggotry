@@ -1,3 +1,14 @@
+2012/02/29:
+	* Overhaul to use LibEnfiltrate
+	* Rework a bunch of stuff.
+	* Documentation fix.
+	* Always use stored variables for character inventory queries
+	  (for consistency)
+	* Notice Event.Item.Update, which fires when count changes even
+	  if a slot's contents are unchanged.  Which happens when trying
+	  to re-stack things.
+	* Make apply_args indicate success or failure
+
 2012/01/22:
 	* Add function:<code> to filters
 
