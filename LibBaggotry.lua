@@ -70,7 +70,13 @@ function lbag.dump_item(item, slotspec)
   else
     prettystack = ""
   end
-  lbag.printf("%s: %s%s", item._slotspec or slotspec, item.name, prettystack)
+  local whose
+  if item._character and item._character ~= lbag.whoami then
+    whose = item._character .. ': '
+  else
+    whose = ''
+  end
+  lbag.printf("%s%s: %s%s", whose, item._slotspec or slotspec, item.name, prettystack)
 end
 
 function lbag.slot_updated()
@@ -341,8 +347,8 @@ function lbag.slotspec_p(spec)
   else
     character = string.lower(character)
   end
-  val, err = pcall(function() Utility.Item.Slot.Parse(slotspec) end)
-  if err then
+  local ok, val = pcall(function() Utility.Item.Slot.Parse(slotspec) end)
+  if not ok then
     return false
   end
   return slotspec, character
@@ -377,7 +383,6 @@ function lbag.expand(baggish, disallow_alts)
       return {}
     else
       lbag.already_filtered[baggish] = true
-      local charspec
       local slotspec = baggish.userdata.slotspec or Utility.Item.Slot.Inventory()
       retval = lbag.expand(slotspec)
       retval = baggish:filter(retval)
@@ -652,8 +657,16 @@ function lbag.apply_args(filter, args)
       slotspec = charspec .. Utility.Item.Slot.Inventory()
     elseif slotspec == 'bank' then
       slotspec = charspec .. Utility.Item.Slot.Bank()
+    elseif slotspec == 'quest' then
+      slotspec = charspec .. Utility.Item.Slot.Quest()
+    elseif slotspec == 'wardrobe' then
+      slotspec = charspec .. Utility.Item.Slot.Wardrobe()
+    elseif slotspec == 'guild' then
+      slotspec = charspec .. Utility.Item.Slot.Guild()
     elseif slotspec == 'owned' then
       slotspec = { charspec .. Utility.Item.Slot.Inventory(), charspec .. Utility.Item.Slot.Bank() }
+    elseif slotspec == 'all' then
+      slotspec = { charspec .. Utility.Item.Slot.Inventory(), charspec .. Utility.Item.Slot.Bank(), charspec .. Utility.Item.Slot.Equipment(), charspec .. Utility.Item.Slot.Quest(), charspec .. Utility.Item.Slot.Wardrobe() }
     else
       slotspec = charspec .. slotspec
     end

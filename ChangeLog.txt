@@ -1,3 +1,9 @@
+2012/03/23:
+	* Improve clarity of filter display.
+	* Fix pcall to be used correctly rather than incorrectly.
+	* Improve range of slot specs allowed for informal usage like 'owned'
+	  or 'all'.
+
 2012/02/29:
 	* Overhaul to use LibEnfiltrate
 	* Rework a bunch of stuff.
