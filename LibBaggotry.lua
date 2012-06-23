@@ -125,14 +125,10 @@ function lbag.stack_one_item(item_list, stack_size, verbose)
   end
   lbag.printf("Stacking to %d.", stack_size)
   for k, v in pairs(item_list) do
-    lbag.printf("Found %d items, slot %s.", v.stack or 1, v._slotspec)
-  end
-  for k, v in pairs(item_list) do
     local stack = v.stack or 1
     max_stack = max_stack or v.stackMax or 1
     while stack > stack_size do
       lbag.queue(Command.Item.Split, v._slotspec, stack_size)
-      lbag.printf("Splitting %d off of [%s] %d.", stack_size, v._slotspec, stack)
       count = count + 1
       stack = stack - stack_size
       did_something = true
@@ -164,7 +160,6 @@ function lbag.stack_one_item(item_list, stack_size, verbose)
       did_something = true
       local s1 = match_us_up[first].stack
       local s2 = match_us_up[second].stack
-      lbag.printf("Moving [%s] %d onto [%s] %d.", match_us_up[first]._slotspec, s1, match_us_up[second]._slotspec, s2)
       if match_us_up[first].stack + match_us_up[second].stack > max_stack then
 	moved = max_stack - match_us_up[second].stack
 	match_us_up[first].stack = match_us_up[first].stack - moved
@@ -177,7 +172,6 @@ function lbag.stack_one_item(item_list, stack_size, verbose)
       end
       while match_us_up[second].stack > stack_size do
 	lbag.queue(Command.Item.Split, match_us_up[second]._slotspec, stack_size)
-	lbag.printf("Splitting %d off of [%s] %d.", stack_size, match_us_up[second]._slotspec, match_us_up[second].stack)
         count = count + 1
 	match_us_up[second].stack = match_us_up[second].stack - stack_size
 	matches_left = matches_left - stack_size
@@ -190,7 +184,7 @@ function lbag.stack_one_item(item_list, stack_size, verbose)
     end
   end
   if verbose then
-    lbag.printf("Stacking items to %d took %d moves.", stack_size, count)
+    lbag.printf("Stacking items to %d took %d move%s.", stack_size, count, count == 1 and "s" or "")
   end
   -- we may have things which were left over
   return did_something

@@ -1,3 +1,7 @@
+2012/06/21:
+	* Bump versions and such for 1.9.
+	* Remove some verbose messages.
+
 2012/03/23:
 	* Improve clarity of filter display.
 	* Fix pcall to be used correctly rather than incorrectly.
