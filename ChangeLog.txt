@@ -1,3 +1,38 @@
+2014/01/12:
+	* Use "owned" by default instead of inventory-only.
+	* Actually use printf instead of embedding it and then not
+	  using it.
+	* Improve logic for slotspecs and charspecs, in particular, drop
+	  overcomplicated Utility.Inventory.Slot.Bank() computations.
+	* Update LibEnfilrate to handle subfields, like 'stats.resistAll'.
+	* 0.14.
+
+2014/01/08:
+	* Start handling vault slots more-correctly. There's overlap between
+	  vault and bank, so we have to replace bank with bank(1)..bank(8).
+
+2013/07/04:
+	* Fix share_inventory() so it actually could be used.
+
+2012/11/03:
+	* SL release (0.11)
+
+2012/10/31:
+	* Switch to printf
+	* TOC bump
+
+2012/10/28:
+	* Don't try to stack items with a max stack of 1 (or unstackable)
+	* Ignore inventory slots containing an already-full stack of
+	  something.
+
+2012/10/27:
+	* Only run one update per frame even if there are more events.
+
+2012/10/26:
+	* 1.11 compatibility updates
+	* Use addon info table for data.
+
 2012/06/21:
 	* Bump versions and such for 1.9.
 	* Remove some verbose messages.
