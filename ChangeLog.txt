@@ -5,6 +5,7 @@
 	* Improve logic for slotspecs and charspecs, in particular, drop
 	  overcomplicated Utility.Inventory.Slot.Bank() computations.
 	* Update LibEnfilrate to handle subfields, like 'stats.resistAll'.
+	* Add "equip" to the list of simple slotspecs available.
 	* 0.14.
 
 2014/01/08:

@@ -792,6 +792,8 @@ function lbag.apply_args(filter, args)
     slotspec = Utility.Item.Slot.Inventory()
   elseif slotspec == 'bank' then
     slotspec = Utility.Item.Slot.Bank()
+  elseif slotspec == 'equip' or slotspec == 'equipment' then
+    slotspec = Utility.Item.Slot.Equipment()
   elseif slotspec == 'vault' then
     slotspec = Utility.Item.Slot.Vault()
   elseif slotspec == 'quest' then
