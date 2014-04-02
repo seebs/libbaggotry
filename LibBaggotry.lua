@@ -48,7 +48,7 @@ lbag.color_rarity = {
 	purple = 'epic',
 	orange = 'relic',
 	yellow = 'quest',
-	red = 'transcendant',
+	red = 'transcendent',
 }
 lbag.rarity_color_table = { sellable = { r = .34375, g = .34375, b = 34375 },
 	common = { r = .98, g = .98, b = .98 },
@@ -56,11 +56,11 @@ lbag.rarity_color_table = { sellable = { r = .34375, g = .34375, b = 34375 },
 	rare = { r = .148, g = .496, b = .977 },
 	epic = { r = .676, g = .281, b = .98 },
 	relic = { r = 1, g = .5, b = 0 },
-	transcendant = { r = .8, g = 0, b = 0 },
+	transcendent = { r = .8, g = 0, b = 0 },
 	quest = { r = 1, g = 1, b = 0 },
 }
 
-lbag.bestpony = { 'sellable', 'common', 'uncommon', 'rare', 'epic', 'relic', 'transcendant', 'quest' }
+lbag.bestpony = { 'sellable', 'common', 'uncommon', 'rare', 'epic', 'relic', 'transcendent', 'quest' }
 
 lbag.command_queue = {}
 lbag.need_update = false
